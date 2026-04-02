@@ -1,0 +1,3 @@
+# Next.js 16+ için Node 20 (Dokploy / Nixpacks varsayılanı 18’dir)
+[variables]
+NIXPACKS_NODE_VERSION = "20"

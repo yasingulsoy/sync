@@ -4,6 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const IDLE_MS = 20_000;
 
+/** TV / kiosk tipi geniş ekranlarda tam ekran otomatik denenir (tarayıcı izin verirse). */
+const AUTO_FULLSCREEN_MQ = "(min-width: 1024px) and (min-height: 600px)";
+
+const shellClassName =
+  "fixed inset-0 flex h-dvh min-h-dvh w-full max-w-[100vw] flex-col items-center justify-center overflow-hidden bg-black";
+
 export function VideoPlaylist() {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -44,6 +50,21 @@ export function VideoPlaylist() {
     if (!el || document.fullscreenElement) return;
     void el.requestFullscreen().catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia(AUTO_FULLSCREEN_MQ);
+    const tryAutoFullscreen = () => {
+      if (!mq.matches) return;
+      enterFullscreen();
+    };
+    tryAutoFullscreen();
+    mq.addEventListener("change", tryAutoFullscreen);
+    window.addEventListener("orientationchange", tryAutoFullscreen);
+    return () => {
+      mq.removeEventListener("change", tryAutoFullscreen);
+      window.removeEventListener("orientationchange", tryAutoFullscreen);
+    };
+  }, [enterFullscreen]);
 
   const toggleFullscreen = useCallback(() => {
     const el = containerRef.current;
@@ -120,7 +141,7 @@ export function VideoPlaylist() {
     return (
       <div
         ref={containerRef}
-        className="fixed inset-0 bg-black"
+        className={shellClassName}
         onDoubleClick={toggleFullscreen}
       />
     );
@@ -129,12 +150,12 @@ export function VideoPlaylist() {
   return (
     <div
       ref={containerRef}
-      className="fixed inset-0 bg-black"
+      className={shellClassName}
       onDoubleClick={toggleFullscreen}
     >
       <video
         ref={videoRef}
-        className="h-full w-full object-contain"
+        className="max-h-full max-w-full shrink-0 object-contain"
         src={`/videos/${current}`}
         playsInline
         autoPlay

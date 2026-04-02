@@ -1,0 +1,28 @@
+HOSPISYNC — Mini PC’de oturum acilinca siteyi acma
+=================================================
+
+Ne yapiyor?
+  Bilgisayar acilip kullanici oturumu acildiginda, 5 saniye sonra
+  https://hospisync.cloud adresi varsayilan tarayicide acilir.
+
+Mini PC’ye ne kopyalanir?
+  Sadece su dosya yeterli (USB ile):
+    mini-pc-kur.ps1
+
+Kurulum (her mini PC’de bir kez):
+  1) mini-pc-kur.ps1 dosyasini masaustune kopyalayin.
+  2) Dosyaya sag tik > "PowerShell ile calistir"
+     (Gorunmuyorsa: Win+R, powershell yazin, Enter; sonra surukleyip birakmayin,
+      surunu yazin:)
+       cd Desktop
+       powershell -ExecutionPolicy Bypass -File ".\mini-pc-kur.ps1"
+
+Kaldirma:
+  mini-pc-kaldir.ps1 ayni sekilde bir kez calistirin.
+
+Not: Internet baglantisi ve tarayici gerekir. Gecikmeyi degistirmek icin
+     mini-pc-kur.ps1 icindeki "timeout /t 5" satirindaki 5 rakamini
+     (saniye) degistirin; sonra kurulumu tekrar calistirin.
+
+Alternatif (proje klasoru tam ise):
+  install-hospisync-startup.ps1 ve hospisync-open.bat birlikte kullanilabilir.

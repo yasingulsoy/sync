@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const IDLE_MS = 20_000;
+/** Bu süre boyunca fare/tıklama/klavye yoksa tam ekran açılır ve mümkünse açık kalır. */
+const IDLE_MS = 15_000;
 
 /** TV / kiosk tipi geniş ekranlarda tam ekran otomatik denenir (tarayıcı izin verirse). */
 const AUTO_FULLSCREEN_MQ = "(min-width: 1024px) and (min-height: 600px)";
@@ -14,6 +15,7 @@ export function VideoPlaylist() {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastActivityRef = useRef(0);
   const [list, setList] = useState<string[]>([]);
   const [index, setIndex] = useState(0);
   const [muted, setMuted] = useState(true);
@@ -96,17 +98,23 @@ export function VideoPlaylist() {
   }, [enterFullscreen]);
 
   useEffect(() => {
+    lastActivityRef.current = Date.now();
     resetIdleTimer();
     const events = [
       "mousemove",
       "mousedown",
+      "click",
       "touchstart",
       "keydown",
       "wheel",
       "pointerdown",
+      "pointermove",
       "scroll",
     ] as const;
-    const onActivity = () => resetIdleTimer();
+    const onActivity = () => {
+      lastActivityRef.current = Date.now();
+      resetIdleTimer();
+    };
     events.forEach((ev) =>
       window.addEventListener(ev, onActivity, { passive: true }),
     );
@@ -116,8 +124,24 @@ export function VideoPlaylist() {
     };
   }, [resetIdleTimer]);
 
+  /** Çıkış (ESC vb.) yalnızca hareketsizlik halindeyse tekrar tam ekran — tam ekranda kal. */
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      if (document.fullscreenElement) return;
+      const now = Date.now();
+      if (now - lastActivityRef.current < IDLE_MS) return;
+      requestAnimationFrame(() => {
+        enterFullscreen();
+      });
+    };
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () =>
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, [enterFullscreen]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      lastActivityRef.current = Date.now();
       if (e.key === "f" || e.key === "F") {
         toggleFullscreenRef.current();
         return;
@@ -142,7 +166,7 @@ export function VideoPlaylist() {
       <div
         ref={containerRef}
         className={shellClassName}
-        onDoubleClick={toggleFullscreen}
+        onDoubleClick={enterFullscreen}
       />
     );
   }
@@ -151,7 +175,7 @@ export function VideoPlaylist() {
     <div
       ref={containerRef}
       className={shellClassName}
-      onDoubleClick={toggleFullscreen}
+      onDoubleClick={enterFullscreen}
     >
       <video
         ref={videoRef}

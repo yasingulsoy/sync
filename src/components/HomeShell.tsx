@@ -37,7 +37,7 @@ function usePeriodicBandWhileFullscreen(isFs: boolean): boolean {
       queueMicrotask(() => setTick(false));
       return;
     }
-    let hideTimer: ReturnType<typeof window.setTimeout> | undefined;
+    let hideTimer: number | undefined;
     const showCycle = () => {
       setTick(true);
       hideTimer = window.setTimeout(() => {
@@ -60,9 +60,7 @@ export function HomeShell() {
   const isFullscreen = useFullscreenElement();
   const periodicBand = usePeriodicBandWhileFullscreen(isFullscreen);
   const [manualBand, setManualBand] = useState(false);
-  const manualHideRef = useRef<ReturnType<typeof window.setTimeout> | null>(
-    null
-  );
+  const manualHideRef = useRef<number | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

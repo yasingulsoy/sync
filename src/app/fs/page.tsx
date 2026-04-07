@@ -1,5 +1,5 @@
-import { VideoPlaylist } from "@/components/VideoPlaylist";
+import { HomeShell } from "@/components/HomeShell";
 
 export default function FullscreenPage() {
-  return <VideoPlaylist />;
+  return <HomeShell />;
 }

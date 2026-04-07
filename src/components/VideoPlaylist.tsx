@@ -1,11 +1,19 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const shellClassName =
-  "fixed inset-0 h-dvh min-h-dvh w-full max-w-[100vw] overflow-hidden bg-black";
+  "relative fixed left-0 right-0 top-0 z-0 w-full max-w-[100vw] overflow-hidden bg-black";
 
-export function VideoPlaylist() {
+export function VideoPlaylist({
+  bottomInsetPx = 0,
+  children,
+}: {
+  bottomInsetPx?: number;
+  /** Tam ekran ağacının içinde olmalı (ör. hava bandı); aksi halde tam ekranda görünmez */
+  children?: ReactNode;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [list, setList] = useState<string[]>([]);
@@ -94,13 +102,21 @@ export function VideoPlaylist() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const shellStyle = {
+    bottom: bottomInsetPx,
+    transition: "bottom 0.45s cubic-bezier(0.32, 0.72, 0, 1)",
+  } as const;
+
   if (list.length === 0) {
     return (
       <div
         ref={containerRef}
         className={shellClassName}
+        style={shellStyle}
         onDoubleClick={enterFullscreenFromUser}
-      />
+      >
+        {children}
+      </div>
     );
   }
 
@@ -108,11 +124,12 @@ export function VideoPlaylist() {
     <div
       ref={containerRef}
       className={shellClassName}
+      style={shellStyle}
       onDoubleClick={enterFullscreenFromUser}
     >
       <video
         ref={videoRef}
-        className="block h-full w-full min-h-0 object-contain"
+        className="relative z-0 block h-full w-full min-h-0 object-contain"
         src={`/videos/${current}`}
         playsInline
         autoPlay
@@ -120,6 +137,7 @@ export function VideoPlaylist() {
         onEnded={goNext}
         aria-label="Video oynatıcı (sessiz)"
       />
+      {children}
     </div>
   );
 }

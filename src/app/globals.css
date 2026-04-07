@@ -1,5 +1,23 @@
 @import "tailwindcss";
 
+/* Alt bant: haber bülteni tarzı kesintisiz kayan metin */
+@keyframes weather-marquee-shift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.weather-marquee-track {
+  animation-name: weather-marquee-shift;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  animation-duration: var(--marquee-duration, 36s);
+  will-change: transform;
+}
+
 html,
 body {
   margin: 0;

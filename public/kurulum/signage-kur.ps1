@@ -47,9 +47,8 @@ if (-not (Test-Path $notifPath)) { New-Item -Path $notifPath -Force | Out-Null }
 Set-ItemProperty -Path $notifPath -Name "ToastEnabled" -Value 0 -Type DWord
 Write-Host "        Bildirimler kapatildi" -ForegroundColor Green
 
-# Gorev cubugunu otomatik gizle
+# Gorev cubugunu otomatik gizle (kayit defteri elle riskli; kullaniciya yonlendir)
 Write-Host "  [4/4] Gorev cubugu gizleniyor..." -ForegroundColor Yellow
-$tbPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\StuckRects3"
 Write-Host "        Gorev cubugunu elle gizleyin: Sag tikla > Ayarlar > Otomatik gizle" -ForegroundColor DarkYellow
 
 Write-Host ""

@@ -3,7 +3,8 @@ import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "Signage Kurulumu - HospiSync",
-  description: "Mini PC kiosk kurulum dosyaları ve adım adım talimatlar",
+  description:
+    "Mini PC kiosk kurulum dosyaları, Android debug APK ve adım adım talimatlar",
 };
 
 const files = [
@@ -21,6 +22,12 @@ const files = [
     hint: "Kaldırma betiği (kiosk devre dışı bırakır)",
   },
 ] as const;
+
+const androidApk = {
+  file: "hospisync-signage-debug.apk",
+  label: "Android — HospiSync Signage (debug APK)",
+  hint: "Telefon veya Android TV kutusu; hospisync.cloud adresini tam ekran açar. İç test / kurulum içindir (debug imza).",
+} as const;
 
 const steps = [
   {
@@ -53,10 +60,10 @@ export default function KurulumPage() {
           Signage Kurulumu
         </h1>
         <p className="text-zinc-400 leading-relaxed">
-          Mini PC&apos;lere bağlı televizyonlarda{" "}
-          <span className="text-zinc-200">hospisync.cloud</span> adresini tam ekran
-          göstermek için aşağıdaki adımları izleyin. Kurulum bir kez yapılır;
-          bilgisayar her açıldığında site otomatik olarak kiosk modunda başlar.
+          <span className="text-zinc-200">Windows mini PC</span> için kiosk dosyaları
+          ve <span className="text-zinc-200">Android</span> cihazlar için uygulama
+          paketi aşağıdadır. Site adresi{" "}
+          <span className="text-zinc-200">hospisync.cloud</span> olarak açılır.
         </p>
       </header>
 
@@ -118,6 +125,49 @@ export default function KurulumPage() {
             </li>
           ))}
         </ul>
+      </section>
+
+      {/* Mobil Android */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500">
+          Mobil — Android
+        </h2>
+        <ul className="divide-y divide-zinc-800 rounded-lg border border-zinc-800 bg-zinc-950/80">
+          <li className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <a
+                href={`/kurulum/${androidApk.file}`}
+                download
+                className="font-medium text-teal-400 hover:text-teal-300"
+              >
+                {androidApk.label}
+              </a>
+              <p className="text-sm text-zinc-500">{androidApk.hint}</p>
+            </div>
+            <a
+              href={`/kurulum/${androidApk.file}`}
+              download
+              className="shrink-0 rounded-md border border-zinc-700 px-3 py-1.5 text-center text-sm text-zinc-300 transition-colors hover:bg-zinc-800"
+            >
+              İndir
+            </a>
+          </li>
+        </ul>
+        <div className="rounded-lg border border-zinc-800 bg-zinc-950/50 p-4 text-sm text-zinc-400 leading-relaxed">
+          <p className="font-medium text-zinc-300">Yükleme</p>
+          <ol className="mt-2 list-inside list-decimal space-y-1.5">
+            <li>APK dosyasını indirin ve cihaza aktarın.</li>
+            <li>
+              Ayarlarda <strong className="text-zinc-300">bilinmeyen kaynaklar</strong>{" "}
+              (veya bu uygulama için kaynak izni) açık olmalıdır.
+            </li>
+            <li>Dosyaya dokunarak kurun ve uygulamayı açın.</li>
+          </ol>
+          <p className="mt-3 text-zinc-500">
+            Yeni bir Android sürümü yayınladığınızda APK&apos;yı yeniden derleyip bu
+            sayfadaki dosyayı güncellemeniz gerekir.
+          </p>
+        </div>
       </section>
 
       {/* Ne yapar? */}

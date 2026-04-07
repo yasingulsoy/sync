@@ -5,6 +5,7 @@ plugins {
 android {
     namespace = "com.hospisync.signage"
     compileSdk = 35
+    buildToolsVersion = "35.0.0"
     defaultConfig {
         applicationId = "com.hospisync.signage"
         minSdk = 26

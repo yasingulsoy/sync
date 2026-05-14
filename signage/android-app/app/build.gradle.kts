@@ -8,7 +8,8 @@ android {
     buildToolsVersion = "35.0.0"
     defaultConfig {
         applicationId = "com.hospisync.signage"
-        minSdk = 26
+        // Android 4.2.2 (API 17) Jelly Bean MR1 ve üzeri
+        minSdk = 17
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
@@ -34,8 +35,9 @@ android {
     }
 }
 dependencies {
-    implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.appcompat:appcompat:1.7.0")
-    implementation("com.google.android.material:material:1.12.0")
-    implementation("androidx.activity:activity-ktx:1.9.3")
+    // 1.6.0+ appcompat minSdk 21; API 17 için 1.5.x serisi
+    implementation("androidx.core:core-ktx:1.8.0")
+    implementation("androidx.appcompat:appcompat:1.5.1")
+    implementation("com.google.android.material:material:1.6.1")
+    implementation("androidx.activity:activity-ktx:1.5.1")
 }

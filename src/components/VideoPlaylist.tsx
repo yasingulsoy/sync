@@ -2,9 +2,17 @@
 
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  buildMediaPlaylist,
+  mediaSrc,
+  type PlaylistItem,
+} from "@/lib/mediaPlaylist";
 
 const shellClassName =
   "relative fixed left-0 right-0 top-0 z-0 w-full max-w-[100vw] overflow-hidden bg-black";
+
+/** Kampanya görsellerinin ekranda kalma süresi */
+const IMAGE_DISPLAY_MS = 8_000;
 
 export function VideoPlaylist({
   bottomInsetPx = 0,
@@ -16,13 +24,19 @@ export function VideoPlaylist({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [list, setList] = useState<string[]>([]);
+  const [list, setList] = useState<PlaylistItem[]>([]);
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
-    fetch("/api/videos")
-      .then((r) => r.json())
-      .then((data: { videos?: string[] }) => setList(data.videos ?? []))
+    Promise.all([
+      fetch("/api/videos").then((r) => r.json()),
+      fetch("/api/images").then((r) => r.json()),
+    ])
+      .then(([videoData, imageData]: [{ videos?: string[] }, { images?: string[] }]) => {
+        setList(
+          buildMediaPlaylist(videoData.videos ?? [], imageData.images ?? []),
+        );
+      })
       .catch(() => setList([]));
   }, []);
 
@@ -40,7 +54,7 @@ export function VideoPlaylist({
 
   useEffect(() => {
     const v = videoRef.current;
-    if (!v || !current) return;
+    if (!v || !current || current.type !== "video") return;
     const keepSilent = () => {
       v.muted = true;
       v.volume = 0;
@@ -52,6 +66,12 @@ export function VideoPlaylist({
     if (p !== undefined) p.catch(() => {});
     return () => v.removeEventListener("volumechange", keepSilent);
   }, [current]);
+
+  useEffect(() => {
+    if (!current || current.type !== "image") return;
+    const timer = window.setTimeout(goNext, IMAGE_DISPLAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [current, goNext]);
 
   const enterFullscreenFromUser = useCallback(() => {
     const el = containerRef.current;
@@ -127,16 +147,26 @@ export function VideoPlaylist({
       style={shellStyle}
       onDoubleClick={enterFullscreenFromUser}
     >
-      <video
-        ref={videoRef}
-        className="relative z-0 block h-full w-full min-h-0 object-contain"
-        src={`/videos/${current}`}
-        playsInline
-        autoPlay
-        muted
-        onEnded={goNext}
-        aria-label="Video oynatıcı (sessiz)"
-      />
+      {current.type === "video" ? (
+        <video
+          ref={videoRef}
+          className="relative z-0 block h-full w-full min-h-0 object-contain"
+          src={mediaSrc(current)}
+          playsInline
+          autoPlay
+          muted
+          onEnded={goNext}
+          aria-label="Video oynatıcı (sessiz)"
+        />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={mediaSrc(current)}
+          alt=""
+          className="relative z-0 block h-full w-full min-h-0 object-contain"
+          draggable={false}
+        />
+      )}
       {children}
     </div>
   );

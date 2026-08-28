@@ -346,6 +346,19 @@ function SubelerTab({ data, onChange }: { data: Payload; onChange: () => void })
 
   return (
     <div className="space-y-6">
+      <p className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4 text-sm text-zinc-400">
+        Bütün ekranlar aynı adresi açar:{" "}
+        <code className="text-zinc-200">hospisync.cloud/fs</code>. Hangi videonun
+        oynayacağını aşağıda tanımladığınız <strong>IP</strong> belirler; kiosk
+        kurulumunda hiçbir şey değiştirmeniz gerekmez.
+        <br />
+        <span className="text-zinc-500">
+          Şube kodu yalnızca yedek çözümdür: bir şubenin IP&apos;si değişip ekran
+          yanlış içerik gösterirse, o bilgisayarın adresini geçici olarak{" "}
+          <code className="text-zinc-400">/fs/kod</code> yapabilirsiniz.
+        </span>
+      </p>
+
       <form
         action={formAction}
         className="flex flex-wrap items-end gap-3 rounded-lg border border-zinc-800 bg-zinc-950/60 p-4"
@@ -417,7 +430,9 @@ function SubeKarti({ sube, onChange }: { sube: SubeOzet; onChange: () => void })
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="flex flex-wrap items-baseline gap-3">
           <span className="font-semibold text-white">{sube.ad}</span>
-          <code className="text-xs text-zinc-500">/fs/{sube.kod}</code>
+          <span className="text-xs text-zinc-600">
+            kod <code className="text-zinc-500">{sube.kod}</code>
+          </span>
           <span className="text-xs text-zinc-600">
             {sube.videoSayisi > 0
               ? `${sube.videoSayisi} video atanmış`

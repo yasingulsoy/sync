@@ -4,17 +4,59 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const shellClassName =
-  "relative fixed left-0 right-0 top-0 z-0 w-full max-w-[100vw] overflow-hidden bg-black";
+  "fixed left-0 right-0 top-0 z-0 w-full max-w-[100vw] overflow-hidden bg-black";
 
+/** Liste ne siklikta yenilenir — yeni video eklendiginde ekran yeniden baslatilmasin diye */
+const LIST_REFRESH_MS = 300_000;
+/** Panele "yasiyorum, sunu oynatiyorum" sinyali */
+const HEARTBEAT_MS = 60_000;
+
+const SCREEN_ID_KEY = "hospisync-ekran-id";
+
+/** Cihaza ozel kalici kimlik: ayni hastanede birden fazla TV'yi ayirt etmek icin */
+function loadScreenId(): string {
+  const fallback = () =>
+    `x${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  try {
+    const existing = window.localStorage.getItem(SCREEN_ID_KEY);
+    if (existing) return existing;
+    const id =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : fallback();
+    window.localStorage.setItem(SCREEN_ID_KEY, id);
+    return id;
+  } catch {
+    // localStorage kapaliysa (gizli mod, eski WebView) oturumluk kimlik
+    return fallback();
+  }
+}
+
+let cachedScreenId: string | null = null;
+
+/** Kimligi bir kez uret, sonra bellekten ver (yalnizca efektlerden cagrilir) */
+function screenId(): string {
+  if (cachedScreenId === null) cachedScreenId = loadScreenId();
+  return cachedScreenId;
+}
+
+/** "medipol/tanitim (1).mp4" -> "/videos/medipol/tanitim%20(1).mp4" */
 function videoSrc(name: string): string {
-  return `/videos/${encodeURIComponent(name)}`;
+  return `/videos/${name.split("/").map(encodeURIComponent).join("/")}`;
+}
+
+function sameList(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
 export function VideoPlaylist({
   bottomInsetPx = 0,
+  group,
   children,
 }: {
   bottomInsetPx?: number;
+  /** URL ile verilen grup (/fs/medipol). Verilmezse sunucu IP'ye gore secer. */
+  group?: string;
   /** Tam ekran ağacının içinde olmalı (ör. hava bandı); aksi halde tam ekranda görünmez */
   children?: ReactNode;
 }) {
@@ -23,16 +65,39 @@ export function VideoPlaylist({
   const [list, setList] = useState<string[]>([]);
   const [index, setIndex] = useState(0);
 
+  // Liste: acilista bir kez + periyodik yenileme
   useEffect(() => {
-    fetch("/api/videos")
-      .then((r) => r.json())
-      .then((data: { videos?: string[] }) => {
-        setList(data.videos ?? []);
-      })
-      .catch(() => setList([]));
-  }, []);
+    let cancelled = false;
 
-  const current = list[index] ?? null;
+    const params = new URLSearchParams({ id: screenId() });
+    if (group) params.set("grup", group);
+    const url = `/api/videos?${params}`;
+
+    const fetchList = () => {
+      fetch(url, { cache: "no-store" })
+        .then((r) => r.json())
+        .then((data: { videos?: string[] }) => {
+          if (cancelled) return;
+          const next = data.videos ?? [];
+          // Ayni liste geldiyse state'e dokunma; oynayan video kesilmesin.
+          setList((prev) => (sameList(prev, next) ? prev : next));
+        })
+        .catch(() => {
+          /* ag koptuysa mevcut listeyle devam et */
+        });
+    };
+
+    fetchList();
+    const id = window.setInterval(fetchList, LIST_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [group]);
+
+  // Liste kisalirsa index tasabilir; modulo ile guvenli tut
+  const safeIndex = list.length ? ((index % list.length) + list.length) % list.length : 0;
+  const current = list[safeIndex] ?? null;
 
   const goNext = useCallback(() => {
     if (list.length === 0) return;
@@ -43,6 +108,15 @@ export function VideoPlaylist({
     if (list.length === 0) return;
     setIndex((i) => (i - 1 + list.length) % list.length);
   }, [list.length]);
+
+  // Tek video kaldiginda goNext ayni index'e doner ve efekt tetiklenmez;
+  // <video loop> olmadan ekran biten karede donar.
+  const singleVideo = list.length === 1;
+
+  // Bozuk/eksik dosyada siyah ekranda kalmak yerine sonrakine gec
+  const handleError = useCallback(() => {
+    if (list.length > 1) goNext();
+  }, [goNext, list.length]);
 
   useEffect(() => {
     const v = videoRef.current;
@@ -58,6 +132,44 @@ export function VideoPlaylist({
     if (p !== undefined) p.catch(() => {});
     return () => v.removeEventListener("volumechange", keepSilent);
   }, [current]);
+
+  /* ---------- Panel sinyali ---------- */
+
+  const beatRef = useRef({ current: null as string | null, index: 0, total: 0 });
+
+  // Sinyalin tasiyacagi son durum; asagidaki efektlerden once calisir
+  useEffect(() => {
+    beatRef.current = { current, index: safeIndex, total: list.length };
+  }, [current, safeIndex, list.length]);
+
+  const sendBeat = useCallback(
+    (id: string) => {
+      if (!id) return;
+      const body = JSON.stringify({ id, ...beatRef.current });
+      fetch("/api/heartbeat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        keepalive: true,
+      }).catch(() => {});
+    },
+    []
+  );
+
+  useEffect(() => {
+    const id = screenId();
+    sendBeat(id);
+    const timer = window.setInterval(() => sendBeat(id), HEARTBEAT_MS);
+    return () => window.clearInterval(timer);
+  }, [sendBeat]);
+
+  // Video degistiginde beklemeden bildir
+  useEffect(() => {
+    if (!current) return;
+    sendBeat(screenId());
+  }, [current, sendBeat]);
+
+  /* ---------- Tam ekran ve klavye ---------- */
 
   const enterFullscreenFromUser = useCallback(() => {
     const el = containerRef.current;
@@ -136,11 +248,13 @@ export function VideoPlaylist({
       <video
         ref={videoRef}
         className="relative z-0 block h-full w-full min-h-0 object-contain"
-        src={videoSrc(current)}
+        src={current ? videoSrc(current) : undefined}
         playsInline
         autoPlay
         muted
+        loop={singleVideo}
         onEnded={goNext}
+        onError={handleError}
         aria-label="Video oynatıcı (sessiz)"
       />
       {children}

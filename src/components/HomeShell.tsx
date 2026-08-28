@@ -56,7 +56,7 @@ function usePeriodicBandWhileFullscreen(isFs: boolean): boolean {
   return isFs && tick;
 }
 
-export function HomeShell() {
+export function HomeShell({ group }: { group?: string } = {}) {
   const isFullscreen = useFullscreenElement();
   const periodicBand = usePeriodicBandWhileFullscreen(isFullscreen);
   const [manualBand, setManualBand] = useState(false);
@@ -99,7 +99,7 @@ export function HomeShell() {
     showBand && isFullscreen ? WEATHER_BAND_HEIGHT_PX : 0;
 
   return (
-    <VideoPlaylist bottomInsetPx={bottomInset}>
+    <VideoPlaylist bottomInsetPx={bottomInset} group={group}>
       <HomeWeather bandActive={showBand} scrollTicker={isFullscreen} />
     </VideoPlaylist>
   );

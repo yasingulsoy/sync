@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { beatScreen } from "@/lib/screenRegistry";
+import { beatScreen } from "@/lib/db/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -23,17 +23,19 @@ export async function POST(request: Request) {
     total?: unknown;
   };
 
-  const id = typeof b.id === "string" ? b.id.trim().slice(0, 64) : "";
-  if (!id) return NextResponse.json({ ok: false }, { status: 400 });
+  const cihazId = typeof b.id === "string" ? b.id.trim().slice(0, 64) : "";
+  if (!cihazId) return NextResponse.json({ ok: false }, { status: 400 });
 
-  // Kayit yoksa (sunucu yeniden baslamis) ekran listeyi tekrar cekip kaydolsun.
-  const known = beatScreen({
-    id,
-    current: typeof b.current === "string" ? b.current.slice(0, 300) : null,
-    index: asCount(b.index),
-    total: asCount(b.total),
-    now: Date.now(),
-  });
+  try {
+    await beatScreen({
+      cihazId,
+      sonVideo: typeof b.current === "string" ? b.current.slice(0, 300) : null,
+      sira: asCount(b.index),
+      toplam: asCount(b.total),
+    });
+  } catch {
+    return NextResponse.json({ ok: false }, { status: 503 });
+  }
 
-  return NextResponse.json({ ok: true, known });
+  return NextResponse.json({ ok: true });
 }

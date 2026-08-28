@@ -1,47 +1,12 @@
 /**
- * EKRAN GRUPLARI — hangi IP hangi hastanenin videolarini oynatir.
+ * IP eşleştirme yardımcıları.
  *
- * ------------------------------------------------------------------
- * NASIL DOLDURULUR
- * ------------------------------------------------------------------
- * 1. Bu dosyayi bos birakip deploy edin.
- * 2. Ekranlar acikken /ekranlar sayfasini acin — baglanan tum IP'ler
- *    orada listelenir (hangi sube oldugunu son gorulme saatinden ve
- *    tarayici bilgisinden ayirt edebilirsiniz).
- * 3. Asagidaki listeye IP'leri yazin, public/videos/<grup> klasorunu
- *    olusturup videolari icine koyun, tekrar deploy edin.
- *
- * `group` = public/videos altindaki klasor adi (kucuk harf, bosluksuz).
- * `ips`   = tam IP ("88.123.45.67") veya CIDR blogu ("88.123.45.0/24").
- *
- * DIKKAT: Hastanenin dis IP'si degisirse (dinamik IP, hat degisikligi)
- * ekran sessizce varsayilan videolara doner. Bu durumda ya buraya yeni
- * IP'yi ekleyin, ya da o PC'nin adresini /fs/<grup> yapip IP'den bagimsiz
- * hale getirin (URL her zaman IP kuralini ezer).
+ * Şube ↔ IP eşlemesi artık bu dosyada değil, veritabanında (sube_ipleri) —
+ * panelden değiştirilebilsin, bir şubenin IP'si değiştiğinde deploy
+ * gerekmesin diye. Burada yalnızca eşleştirme mantığı kaldı.
  */
 
-export type GroupRule = {
-  /** public/videos altindaki klasor adi */
-  group: string;
-  /** Panelde gorunecek okunabilir ad */
-  label: string;
-  /** Tam IP veya CIDR listesi */
-  ips: string[];
-};
-
-export const SCREEN_GROUPS: GroupRule[] = [
-  // Ornek — /ekranlar sayfasindan aldiginiz IP'lerle doldurun:
-  // { group: "medipol",  label: "Medipol Hastanesi",   ips: ["88.123.45.67"] },
-  // { group: "acibadem", label: "Acibadem Atasehir",   ips: ["81.10.20.0/24", "81.10.30.5"] },
-];
-
-/** Hicbir kural eslesmezse oynatilacak klasor. "" = public/videos koku */
-export const DEFAULT_GROUP = "";
-
-/** Her grupta ek olarak oynatilacak ortak videolar. Klasor yoksa atlanir. */
-export const SHARED_GROUP = "_ortak";
-
-/** Klasor adi dogrulamasi — path traversal ("../") ve gecersiz karakterleri engeller */
+/** Şube kodu / URL segmenti doğrulaması — path traversal ve geçersiz karakterleri engeller */
 const GROUP_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/i;
 
 export function isValidGroupName(name: string): boolean {
@@ -61,7 +26,7 @@ function ipv4ToInt(ip: string): number | null {
   return n >>> 0;
 }
 
-/** Tam IP esitligi veya IPv4 CIDR eslesmesi */
+/** Tam IP eşitliği veya IPv4 CIDR eşleşmesi ("88.1.2.0/24") */
 export function ipMatches(ip: string, rule: string): boolean {
   if (!ip || !rule) return false;
   if (!rule.includes("/")) return ip === rule;
@@ -79,23 +44,16 @@ export function ipMatches(ip: string, rule: string): boolean {
   return (a & mask) === (b & mask);
 }
 
-export type GroupMatch = {
-  group: string;
-  label: string;
-  matched: boolean;
-};
-
-export function groupForIp(ip: string): GroupMatch {
-  for (const rule of SCREEN_GROUPS) {
-    if (rule.ips.some((r) => ipMatches(ip, r))) {
-      return { group: rule.group, label: rule.label, matched: true };
-    }
+/** Panelde girilen IP / CIDR değerinin biçim kontrolü */
+export function isValidIpRule(rule: string): boolean {
+  const value = rule.trim();
+  if (!value) return false;
+  if (value.includes("/")) {
+    const [base, bits] = value.split("/");
+    const n = Number(bits);
+    return ipv4ToInt(base) !== null && Number.isInteger(n) && n >= 0 && n <= 32;
   }
-  return { group: DEFAULT_GROUP, label: "Varsayilan", matched: false };
-}
-
-/** IP kuralinda tanimli bir grubun okunabilir adi (panel icin) */
-export function labelForGroup(group: string): string {
-  if (!group) return "Varsayilan";
-  return SCREEN_GROUPS.find((r) => r.group === group)?.label ?? group;
+  if (ipv4ToInt(value) !== null) return true;
+  // IPv6 için kaba kontrol: yalnızca tam eşleşmede kullanılır
+  return /^[0-9a-f:]{2,45}$/i.test(value);
 }

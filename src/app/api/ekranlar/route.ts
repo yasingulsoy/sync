@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { isAdmin } from "@/lib/adminAuth";
+import { listAssignments, listBranches, listScreens } from "@/lib/db/queries";
+import { dbConfigured } from "@/lib/db";
 import { lookupIps } from "@/lib/ipLookup";
-import { SCREEN_GROUPS } from "@/lib/screenGroups";
-import { listScreens } from "@/lib/screenRegistry";
+import { listPoolVideos } from "@/lib/videoPool";
 
 export const dynamic = "force-dynamic";
 
@@ -12,15 +13,43 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: "yetkisiz" }, { status: 401 });
   }
 
-  const screens = listScreens();
-  // Hangi IP'nin hangi sube oldugunu ayirt edebilmek icin sehir/operator bilgisi
-  const geo = await lookupIps(screens.map((s) => s.ip));
+  if (!dbConfigured()) {
+    return NextResponse.json({
+      ok: true,
+      dbYok: true,
+      now: Date.now(),
+      ekranlar: [],
+      subeler: [],
+      havuz: await listPoolVideos(),
+      atamalar: {},
+      geo: {},
+    });
+  }
 
-  return NextResponse.json({
-    ok: true,
-    now: Date.now(),
-    screens,
-    groups: SCREEN_GROUPS,
-    geo,
-  });
+  try {
+    const [ekranlar, subeler, havuz, atamalar] = await Promise.all([
+      listScreens(),
+      listBranches(),
+      listPoolVideos(),
+      listAssignments(),
+    ]);
+
+    const geo = await lookupIps(ekranlar.map((e) => e.ip ?? ""));
+
+    return NextResponse.json({
+      ok: true,
+      dbYok: false,
+      now: Date.now(),
+      ekranlar,
+      subeler,
+      havuz,
+      atamalar,
+      geo,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { ok: false, error: "veritabani", detay: String(err) },
+      { status: 503 }
+    );
+  }
 }

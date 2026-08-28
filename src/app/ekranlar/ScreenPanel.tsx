@@ -21,12 +21,22 @@ type ScreenState = {
 
 type GroupRule = { group: string; label: string; ips: string[] };
 
+type IpInfo = { city: string; region: string; country: string; isp: string };
+
 type Payload = {
   ok: boolean;
   now: number;
   screens: ScreenState[];
   groups: GroupRule[];
+  geo: Record<string, IpInfo>;
 };
+
+/** "Kayseri · Turk Telekom" — hangi IP'nin hangi sube oldugunu ayirt etmek icin */
+function placeOf(info: IpInfo | undefined): string {
+  if (!info) return "";
+  const where = [info.city, info.region].filter(Boolean).join(", ");
+  return [where, info.isp].filter(Boolean).join(" · ");
+}
 
 /** Sinyal 60 sn'de bir gelir; 150 sn'dir ses yoksa ekranı "sessiz" sayarız. */
 const LIVE_WINDOW_MS = 150_000;
@@ -108,10 +118,11 @@ export function ScreenPanel() {
   }
 
   const snippet = unmapped
-    .map(
-      (s, i) =>
-        `  { group: "sube${i + 1}", label: "Şube ${i + 1}", ips: ["${s.ip}"] },`
-    )
+    .map((s, i) => {
+      const yer = placeOf(data.geo?.[s.ip]);
+      const satir = `  { group: "sube${i + 1}", label: "Şube ${i + 1}", ips: ["${s.ip}"] },`;
+      return yer ? `${satir} // ${yer}` : satir;
+    })
     .join("\n");
 
   return (
@@ -163,6 +174,9 @@ export function ScreenPanel() {
             {unmapped.map((s) => (
               <li key={s.ip} className="flex flex-wrap gap-x-3 text-zinc-300">
                 <code className="font-medium text-white">{s.ip}</code>
+                <span className="text-amber-200/90">
+                  {placeOf(data.geo?.[s.ip]) || "konum sorgulanıyor…"}
+                </span>
                 <span className="text-zinc-500">{deviceKind(s.userAgent)}</span>
                 <span className="text-zinc-500">{since(now - s.lastSeen)}</span>
               </li>
@@ -188,6 +202,7 @@ export function ScreenPanel() {
                 <tr className="border-b border-zinc-800">
                   <th className="px-4 py-2 font-medium">Durum</th>
                   <th className="px-4 py-2 font-medium">IP</th>
+                  <th className="px-4 py-2 font-medium">Konum / operatör</th>
                   <th className="px-4 py-2 font-medium">Şu an oynatılan</th>
                   <th className="px-4 py-2 font-medium">Sıra</th>
                   <th className="px-4 py-2 font-medium">Eşleşme</th>
@@ -217,6 +232,9 @@ export function ScreenPanel() {
                       </td>
                       <td className="whitespace-nowrap px-4 py-2 font-mono text-xs text-zinc-300">
                         {s.ip || "—"}
+                      </td>
+                      <td className="max-w-[16rem] truncate px-4 py-2 text-zinc-400">
+                        {placeOf(data.geo?.[s.ip]) || "—"}
                       </td>
                       <td className="max-w-[22rem] truncate px-4 py-2 text-zinc-100">
                         {fileName(s.current)}

@@ -9,6 +9,7 @@ export async function GET() {
   if (!(await isAdmin())) {
     return NextResponse.json({ ok: false, error: "yetkisiz" }, { status: 401 });
   }
-  const veri = await getPanelData();
-  return NextResponse.json(veri, { status: veri.ok ? 200 : 503 });
+  // Veritabani hatasinda da 200 doner; hata payload icinde gelir ki panel
+  // genel bir mesaj yerine asil sebebi gosterebilsin.
+  return NextResponse.json(await getPanelData());
 }

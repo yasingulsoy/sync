@@ -13,7 +13,21 @@ import * as schema from "./schema";
  */
 
 function env(name: string): string {
-  return (process.env[name] ?? "").trim();
+  const raw = (process.env[name] ?? "").trim();
+  // Dokploy gibi panellere .env satırı kopyalanırken tırnaklar da yapışabiliyor
+  // (POSTGRES_HOST="1.2.3.4" -> değer tırnaklarla birlikte gelir). Soyalım.
+  const tirnakli =
+    raw.length >= 2 &&
+    ((raw.startsWith('"') && raw.endsWith('"')) ||
+      (raw.startsWith("'") && raw.endsWith("'")));
+  return tirnakli ? raw.slice(1, -1) : raw;
+}
+
+/** TLS açık mı — "true" dışındaki yaygın yazımları da kabul et */
+function sslAcik(): boolean {
+  return ["true", "1", "yes", "require", "on"].includes(
+    env("POSTGRES_SSL").toLowerCase()
+  );
 }
 
 export function dbConfigured(): boolean {
@@ -38,7 +52,7 @@ function connect(): { sql: ReturnType<typeof postgres>; db: DbHandle } | null {
       user: env("POSTGRES_USER"),
       password: env("POSTGRES_PASSWORD"),
       database: env("POSTGRES_DB"),
-      ssl: env("POSTGRES_SSL") === "true" ? { rejectUnauthorized: false } : false,
+      ssl: sslAcik() ? { rejectUnauthorized: false } : false,
       max: 8,
       idle_timeout: 30,
       connect_timeout: 15,
@@ -79,9 +93,38 @@ export function bootstrapDb(): Promise<void> {
     .catch((err: unknown) => {
       // Kurulum başarısız olsa bile uygulama ayakta kalmalı; ekranlar
       // veritabanısız modda havuzdaki videoları oynatmaya devam eder.
-      console.error("[signage] veritabanı şeması kurulamadı:", err);
+      console.error("[signage] veritabanı şeması kurulamadı:", dbHataMesaji(err));
       store.__signageBootstrap = undefined;
     });
 
   return store.__signageBootstrap;
+}
+
+/** Sık karşılaşılan bağlantı hatalarını anlaşılır hale getirir. */
+export function dbHataMesaji(err: unknown): string {
+  const e = err as { message?: string; code?: string } | undefined;
+  const ham = e?.message ?? String(err);
+  const metin = `${e?.code ?? ""} ${ham}`.trim();
+
+  // TLS kapalı bir sunucuya SSL ile bağlanınca hata metni sürüme göre değişiyor
+  // ("...secure TLS connection..." veya sadece "read ECONNRESET"); ikisini de yakala.
+  if (sslAcik() && /TLS|SSL|ECONNRESET|EPROTO/i.test(metin)) {
+    return (
+      "Sunucu TLS kabul etmiyor ama POSTGRES_SSL açık. Dokploy > Environment " +
+      `içinde POSTGRES_SSL değerini false yapıp servisi yeniden başlatın. (${ham})`
+    );
+  }
+  if (/ENOTFOUND|EAI_AGAIN/i.test(metin)) {
+    return `POSTGRES_HOST çözümlenemedi: "${env("POSTGRES_HOST")}". Değerde tırnak veya boşluk kalmış olabilir. (${ham})`;
+  }
+  if (/ECONNREFUSED/i.test(metin)) {
+    return `${env("POSTGRES_HOST")}:${env("POSTGRES_PORT")} bağlantıyı reddetti. Port veya güvenlik duvarı kontrol edin. (${ham})`;
+  }
+  if (/ETIMEDOUT|CONNECT_TIMEOUT/i.test(metin)) {
+    return `${env("POSTGRES_HOST")}:${env("POSTGRES_PORT")} zaman aşımına uğradı. Uygulama sunucusundan bu porta erişim var mı? (${ham})`;
+  }
+  if (/password|authentication|28P01/i.test(metin)) {
+    return `Kimlik doğrulama başarısız — POSTGRES_USER / POSTGRES_PASSWORD kontrol edin. (${ham})`;
+  }
+  return ham;
 }

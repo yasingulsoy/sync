@@ -1,6 +1,6 @@
 import { lookupIps } from "@/lib/ipLookup";
 import { listPoolVideos } from "@/lib/videoPool";
-import { dbConfigured } from "./index";
+import { dbConfigured, dbHataMesaji } from "./index";
 import {
   listAssignments,
   listBranches,
@@ -60,6 +60,6 @@ export async function getPanelData(): Promise<PanelVerisi> {
       geo,
     };
   } catch (err) {
-    return { ...bos, ok: false, dbYok: false, hata: String(err) };
+    return { ...bos, ok: false, dbYok: false, hata: dbHataMesaji(err) };
   }
 }

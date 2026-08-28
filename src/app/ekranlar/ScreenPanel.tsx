@@ -47,6 +47,7 @@ type Payload = {
   havuz: string[];
   atamalar: Record<string, number[]>;
   geo: Record<string, IpInfo>;
+  hata?: string;
 };
 
 /** Sinyal 60 sn'de bir gelir; 150 sn'dir ses yoksa ekranı "sessiz" sayarız. */
@@ -156,6 +157,16 @@ export function ScreenPanel({ baslangic }: { baslangic: Payload }) {
           Veritabanı ayarları eksik (POSTGRES_*). Şube ve video atamaları
           çalışmaz; ekranlar havuzdaki tüm videoları oynatır.
         </p>
+      )}
+
+      {data.hata && (
+        <div className="rounded-lg border border-red-900/50 bg-red-950/20 p-4 text-sm text-red-200">
+          <p className="font-medium">Veritabanına bağlanılamıyor</p>
+          <p className="mt-2 text-red-300/90">{data.hata}</p>
+          <p className="mt-2 text-red-300/60">
+            Ekranlar bu sırada havuzdaki tüm videoları oynatmaya devam eder.
+          </p>
+        </div>
       )}
 
       <nav className="flex gap-1 border-b border-zinc-800">

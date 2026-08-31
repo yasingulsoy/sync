@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
+import { clientIpFrom } from "@/lib/clientIp";
 import { wmoWeatherToTr } from "@/lib/wmoWeatherTr";
 
 export const dynamic = "force-dynamic";
@@ -137,12 +138,10 @@ async function forecast(lat: number, lon: number) {
 export async function GET() {
   try {
     const h = await headers();
-    const forwarded = h.get("x-forwarded-for");
-    const ip =
-      forwarded?.split(",")[0]?.trim() ||
-      h.get("x-real-ip") ||
-      h.get("cf-connecting-ip") ||
-      "";
+    // Cloudflare arkasinda x-forwarded-for / x-real-ip Cloudflare'in kendi
+    // IP'sini tasir; gercek istemci cf-connecting-ip'de gelir. Sube
+    // eslesmesiyle ayni yardimciyi kullaniyoruz ki ikisi ayrisamasin.
+    const { ip } = clientIpFrom(h);
 
     const geo = await geoFromIp(ip);
     const fc = await forecast(geo.lat, geo.lon);

@@ -8,7 +8,7 @@ export type SubeOzet = {
   kod: string;
   ad: string;
   aktif: boolean;
-  ipler: { id: number; ip: string }[];
+  ipler: { id: number; ip: string; aciklama: string | null }[];
   videoSayisi: number;
 };
 
@@ -29,10 +29,13 @@ export async function listBranches(): Promise<SubeOzet[]> {
       .groupBy(videoAtamalari.subeId),
   ]);
 
-  const ipsBySube = new Map<number, { id: number; ip: string }[]>();
+  const ipsBySube = new Map<
+    number,
+    { id: number; ip: string; aciklama: string | null }[]
+  >();
   for (const r of ips) {
     const arr = ipsBySube.get(r.subeId);
-    const item = { id: r.id, ip: r.ip };
+    const item = { id: r.id, ip: r.ip, aciklama: r.aciklama };
     if (arr) arr.push(item);
     else ipsBySube.set(r.subeId, [item]);
   }

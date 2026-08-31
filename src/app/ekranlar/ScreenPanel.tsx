@@ -32,7 +32,7 @@ type SubeOzet = {
   kod: string;
   ad: string;
   aktif: boolean;
-  ipler: { id: number; ip: string }[];
+  ipler: { id: number; ip: string; aciklama: string | null }[];
   videoSayisi: number;
 };
 
@@ -479,6 +479,11 @@ function SubeKarti({ sube, onChange }: { sube: SubeOzet; onChange: () => void })
             className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-black/60 px-2 py-1 font-mono text-xs text-zinc-300"
           >
             {r.ip}
+            {r.aciklama && (
+              <span className="font-sans text-[11px] text-zinc-500">
+                {r.aciklama}
+              </span>
+            )}
             <button
               type="button"
               disabled={pending}

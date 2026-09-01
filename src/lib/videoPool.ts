@@ -1,8 +1,9 @@
 import { readdir } from "fs/promises";
 import path from "path";
+import { isMediaFile } from "@/lib/medya";
 
 /**
- * Video havuzu: public/videos altındaki tüm dosyalar.
+ * Medya havuzu: public/videos altındaki tüm video ve görsel dosyaları.
  *
  * Klasör bazlı gruplama kaldırıldı — hangi videonun hangi şubede oynayacağı
  * artık panelden tikle belirleniyor. Böylece aynı video birden fazla şubede
@@ -12,12 +13,7 @@ import path from "path";
  * dosyalar "klasor/dosya.mp4" olarak havuzda görünür.
  */
 
-const VIDEO_EXT = new Set([".mp4", ".webm", ".ogg", ".mov", ".m4v", ".mkv"]);
 const VIDEO_ROOT = path.join(process.cwd(), "public", "videos");
-
-function isVideo(name: string): boolean {
-  return VIDEO_EXT.has(path.extname(name).toLowerCase());
-}
 
 export async function listPoolVideos(): Promise<string[]> {
   const found: string[] = [];
@@ -30,7 +26,7 @@ export async function listPoolVideos(): Promise<string[]> {
   }
 
   for (const e of entries) {
-    if (e.isFile() && isVideo(e.name)) {
+    if (e.isFile() && isMediaFile(e.name)) {
       found.push(e.name);
       continue;
     }
@@ -40,7 +36,7 @@ export async function listPoolVideos(): Promise<string[]> {
         withFileTypes: true,
       });
       for (const f of inner) {
-        if (f.isFile() && isVideo(f.name)) found.push(`${e.name}/${f.name}`);
+        if (f.isFile() && isMediaFile(f.name)) found.push(`${e.name}/${f.name}`);
       }
     } catch {
       /* okunamayan klasörü atla */

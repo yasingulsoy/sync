@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { GORSEL_SURESI_MS, isImageFile } from "@/lib/medya";
 
 const shellClassName =
   "fixed left-0 right-0 top-0 z-0 w-full max-w-[100vw] overflow-hidden bg-black";
@@ -41,7 +42,7 @@ function screenId(): string {
 }
 
 /** "medipol/tanitim (1).mp4" -> "/videos/medipol/tanitim%20(1).mp4" */
-function videoSrc(name: string): string {
+function mediaSrc(name: string): string {
   return `/videos/${name.split("/").map(encodeURIComponent).join("/")}`;
 }
 
@@ -109,9 +110,11 @@ export function VideoPlaylist({
     setIndex((i) => (i - 1 + list.length) % list.length);
   }, [list.length]);
 
+  const gorsel = current !== null && isImageFile(current);
+
   // Tek video kaldiginda goNext ayni index'e doner ve efekt tetiklenmez;
   // <video loop> olmadan ekran biten karede donar.
-  const singleVideo = list.length === 1;
+  const singleVideo = list.length === 1 && !gorsel;
 
   // Bozuk/eksik dosyada siyah ekranda kalmak yerine sonrakine gec
   const handleError = useCallback(() => {
@@ -120,7 +123,8 @@ export function VideoPlaylist({
 
   useEffect(() => {
     const v = videoRef.current;
-    if (!v || !current) return;
+    // Gorsel gosterilirken <video> render edilmiyor
+    if (!v || !current || gorsel) return;
     const keepSilent = () => {
       v.muted = true;
       v.volume = 0;
@@ -131,7 +135,15 @@ export function VideoPlaylist({
     const p = v.play();
     if (p !== undefined) p.catch(() => {});
     return () => v.removeEventListener("volumechange", keepSilent);
-  }, [current]);
+  }, [current, gorsel]);
+
+  // Gorselin "bitis" olayi yok; sureyi biz sayip siradakine geciyoruz.
+  // Havuzda tek gorsel varsa zamanlayici kurulmaz, kalici olarak durur.
+  useEffect(() => {
+    if (!gorsel || list.length < 2) return;
+    const t = window.setTimeout(() => goNext(), GORSEL_SURESI_MS);
+    return () => window.clearTimeout(t);
+  }, [gorsel, current, goNext, list.length]);
 
   /* ---------- Panel sinyali ---------- */
 
@@ -245,18 +257,30 @@ export function VideoPlaylist({
       style={shellStyle}
       onDoubleClick={enterFullscreenFromUser}
     >
-      <video
-        ref={videoRef}
-        className="relative z-0 block h-full w-full min-h-0 object-contain"
-        src={current ? videoSrc(current) : undefined}
-        playsInline
-        autoPlay
-        muted
-        loop={singleVideo}
-        onEnded={goNext}
-        onError={handleError}
-        aria-label="Video oynatıcı (sessiz)"
-      />
+      {gorsel && current ? (
+        // Kiosk tam ekran gosterimi; next/image optimizasyonu yerel dosyada
+        // kazanc saglamiyor, ekstra karmasiklik getiriyor.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          className="relative z-0 block h-full w-full min-h-0 object-contain"
+          src={mediaSrc(current)}
+          alt=""
+          onError={handleError}
+        />
+      ) : (
+        <video
+          ref={videoRef}
+          className="relative z-0 block h-full w-full min-h-0 object-contain"
+          src={current ? mediaSrc(current) : undefined}
+          playsInline
+          autoPlay
+          muted
+          loop={singleVideo}
+          onEnded={goNext}
+          onError={handleError}
+          aria-label="Video oynatıcı (sessiz)"
+        />
+      )}
       {children}
     </div>
   );

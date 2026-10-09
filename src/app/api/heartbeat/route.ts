@@ -21,6 +21,8 @@ export async function POST(request: Request) {
     current?: unknown;
     index?: unknown;
     total?: unknown;
+    onbellek?: { hazir?: unknown; toplam?: unknown };
+    takilma?: unknown;
   };
 
   const cihazId = typeof b.id === "string" ? b.id.trim().slice(0, 64) : "";
@@ -32,6 +34,10 @@ export async function POST(request: Request) {
       sonVideo: typeof b.current === "string" ? b.current.slice(0, 300) : null,
       sira: asCount(b.index),
       toplam: asCount(b.total),
+      // Eski sayfalar bu alanlari gondermez; 0 kaydedilir
+      onbellekHazir: asCount(b.onbellek?.hazir),
+      onbellekToplam: asCount(b.onbellek?.toplam),
+      takilma: asCount(b.takilma),
     });
   } catch {
     return NextResponse.json({ ok: false }, { status: 503 });

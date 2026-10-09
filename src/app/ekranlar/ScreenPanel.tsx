@@ -23,6 +23,9 @@ type EkranSatiri = {
   sira: number;
   toplam: number;
   userAgent: string | null;
+  onbellekHazir: number;
+  onbellekToplam: number;
+  takilma: number;
   ilkGorulme: string;
   sonSinyal: string;
 };
@@ -259,6 +262,8 @@ function EkranlarTab({
               <th className="px-4 py-2 font-medium">Konum / operatör</th>
               <th className="px-4 py-2 font-medium">Şu an oynatılan</th>
               <th className="px-4 py-2 font-medium">Sıra</th>
+              <th className="px-4 py-2 font-medium">Önbellek</th>
+              <th className="px-4 py-2 font-medium">Takılma</th>
               <th className="px-4 py-2 font-medium">Son sinyal</th>
               <th className="px-4 py-2 font-medium">Cihaz</th>
               <th className="px-4 py-2" />
@@ -303,6 +308,17 @@ function EkranlarTab({
                   </td>
                   <td className="whitespace-nowrap px-4 py-2 tabular-nums text-zinc-500">
                     {e.toplam ? `${e.sira + 1}/${e.toplam}` : "—"}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-2 tabular-nums">
+                    <OnbellekRozeti hazir={e.onbellekHazir} toplam={e.onbellekToplam} />
+                  </td>
+                  <td
+                    className={`whitespace-nowrap px-4 py-2 tabular-nums ${
+                      e.takilma > 0 ? "text-amber-400" : "text-zinc-600"
+                    }`}
+                    title="Sayfa açıldığından beri video verisi yetişmeyip duraklama sayısı"
+                  >
+                    {e.takilma}
                   </td>
                   <td className="whitespace-nowrap px-4 py-2 text-zinc-500">
                     {since(now - new Date(e.sonSinyal).getTime())}
@@ -667,5 +683,23 @@ function VideolarTab({ data, onChange }: { data: Payload; onChange: () => void }
         </table>
       </div>
     </div>
+  );
+}
+
+/** Kiosk diskinde kaç medyanın hazır olduğu. Tam doluysa video internetsiz oynar. */
+function OnbellekRozeti({ hazir, toplam }: { hazir: number; toplam: number }) {
+  if (!toplam) {
+    // Eski sürüm sayfa veya Service Worker desteklemeyen tarayıcı
+    return <span className="text-zinc-700">—</span>;
+  }
+  const tam = hazir >= toplam;
+  return (
+    <span
+      className={tam ? "text-emerald-400" : "text-sky-400"}
+      title={tam ? "Tüm medya bu cihazın diskinde" : "İndiriliyor"}
+    >
+      {tam ? "✓ " : "↓ "}
+      {hazir}/{toplam}
+    </span>
   );
 }

@@ -198,6 +198,9 @@ export type EkranSatiri = {
   sira: number;
   toplam: number;
   userAgent: string | null;
+  onbellekHazir: number;
+  onbellekToplam: number;
+  takilma: number;
   ilkGorulme: string;
   sonSinyal: string;
 };
@@ -237,6 +240,9 @@ export async function beatScreen(input: {
   sonVideo: string | null;
   sira: number;
   toplam: number;
+  onbellekHazir: number;
+  onbellekToplam: number;
+  takilma: number;
 }): Promise<void> {
   const db = getDb();
   if (!db) return;
@@ -246,6 +252,9 @@ export async function beatScreen(input: {
       sonVideo: input.sonVideo,
       sira: input.sira,
       toplam: input.toplam,
+      onbellekHazir: input.onbellekHazir,
+      onbellekToplam: input.onbellekToplam,
+      takilma: input.takilma,
       sonSinyal: new Date(),
     })
     .where(eq(ekranKaydi.cihazId, input.cihazId));
@@ -265,6 +274,9 @@ export async function listScreens(): Promise<EkranSatiri[]> {
       sira: ekranKaydi.sira,
       toplam: ekranKaydi.toplam,
       userAgent: ekranKaydi.userAgent,
+      onbellekHazir: ekranKaydi.onbellekHazir,
+      onbellekToplam: ekranKaydi.onbellekToplam,
+      takilma: ekranKaydi.takilma,
       ilkGorulme: ekranKaydi.ilkGorulme,
       sonSinyal: ekranKaydi.sonSinyal,
     })

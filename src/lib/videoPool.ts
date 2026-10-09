@@ -1,4 +1,4 @@
-import { readdir } from "fs/promises";
+import { readdir, stat } from "fs/promises";
 import path from "path";
 import { isMediaFile } from "@/lib/medya";
 
@@ -15,7 +15,13 @@ import { isMediaFile } from "@/lib/medya";
 
 const VIDEO_ROOT = path.join(process.cwd(), "public", "videos");
 
-export async function listPoolVideos(): Promise<string[]> {
+export type MedyaDosyasi = {
+  dosya: string;
+  /** Bayt cinsinden. Ekranlardaki önbelleğin güncel olup olmadığını bununla anlıyoruz. */
+  boyut: number;
+};
+
+export async function listPoolMedia(): Promise<MedyaDosyasi[]> {
   const found: string[] = [];
 
   let entries;
@@ -43,5 +49,21 @@ export async function listPoolVideos(): Promise<string[]> {
     }
   }
 
-  return found.sort((a, b) => a.localeCompare(b, "tr", { numeric: true }));
+  found.sort((a, b) => a.localeCompare(b, "tr", { numeric: true }));
+
+  const sonuc = await Promise.all(
+    found.map(async (dosya) => {
+      try {
+        const s = await stat(path.join(VIDEO_ROOT, dosya));
+        return { dosya, boyut: s.size };
+      } catch {
+        return null;
+      }
+    })
+  );
+  return sonuc.filter((x): x is MedyaDosyasi => x !== null);
+}
+
+export async function listPoolVideos(): Promise<string[]> {
+  return (await listPoolMedia()).map((m) => m.dosya);
 }

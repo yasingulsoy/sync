@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { clientIpFrom } from "@/lib/clientIp";
 import { playlistFor, resolveScreen, touchScreen } from "@/lib/db/queries";
 import { isValidGroupName } from "@/lib/screenGroups";
-import { listPoolVideos } from "@/lib/videoPool";
+import { listPoolMedia } from "@/lib/videoPool";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +15,8 @@ export async function GET(request: Request) {
   const override = url.searchParams.get("grup")?.trim() ?? "";
   const urlKodu = override && isValidGroupName(override) ? override : "";
 
-  const havuz = await listPoolVideos();
+  const havuzMedya = await listPoolMedia();
+  const havuz = havuzMedya.map((m) => m.dosya);
 
   let videos = havuz;
   let sube: { id: number; kod: string; ad: string } | null = null;
@@ -59,8 +60,14 @@ export async function GET(request: Request) {
     }
   }
 
+  const boyutlar: Record<string, number> = {};
+  for (const m of havuzMedya) if (videos.includes(m.dosya)) boyutlar[m.dosya] = m.boyut;
+
   return NextResponse.json({
     videos,
+    // Ekran önbelleğinin güncel olup olmadığını anlamak için. "videos" alanı
+    // bilerek string dizisi kaldı: deploy anında açık eski sayfalar bozulmasın.
+    boyutlar,
     sube: sube ? { kod: sube.kod, ad: sube.ad } : null,
     kaynak,
     atamaVar,

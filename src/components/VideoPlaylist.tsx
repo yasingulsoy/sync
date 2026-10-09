@@ -3,6 +3,12 @@
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GORSEL_SURESI_MS, isImageFile } from "@/lib/medya";
+import {
+  medyaAdresi,
+  onbellegiBaslat,
+  onbellegiIsit,
+  onbellekDurumu,
+} from "@/lib/onbellek";
 
 const shellClassName =
   "fixed left-0 right-0 top-0 z-0 w-full max-w-[100vw] overflow-hidden bg-black";
@@ -41,13 +47,13 @@ function screenId(): string {
   return cachedScreenId;
 }
 
-/** "medipol/tanitim (1).mp4" -> "/videos/medipol/tanitim%20(1).mp4" */
-function mediaSrc(name: string): string {
-  return `/videos/${name.split("/").map(encodeURIComponent).join("/")}`;
-}
-
 function sameList(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+function sameSizes(a: Record<string, number>, b: Record<string, number>): boolean {
+  const ka = Object.keys(a);
+  return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
 }
 
 export function VideoPlaylist({
@@ -64,7 +70,17 @@ export function VideoPlaylist({
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [list, setList] = useState<string[]>([]);
+  const [boyutlar, setBoyutlar] = useState<Record<string, number>>({});
   const [index, setIndex] = useState(0);
+
+  // Isitma su an oynayanin siradakinden baslasin diye efekt disindan okunuyor
+  const indexRef = useRef(0);
+  // Oynatma sirasinda "veri yetismedi, bekliyorum" sayisi — panele gider
+  const takilmaRef = useRef(0);
+
+  useEffect(() => {
+    onbellegiBaslat();
+  }, []);
 
   // Liste: acilista bir kez + periyodik yenileme
   useEffect(() => {
@@ -77,11 +93,15 @@ export function VideoPlaylist({
     const fetchList = () => {
       fetch(url, { cache: "no-store" })
         .then((r) => r.json())
-        .then((data: { videos?: string[] }) => {
+        .then((data: { videos?: string[]; boyutlar?: Record<string, number> }) => {
           if (cancelled) return;
           const next = data.videos ?? [];
+          const nextBoyutlar = data.boyutlar ?? {};
           // Ayni liste geldiyse state'e dokunma; oynayan video kesilmesin.
           setList((prev) => (sameList(prev, next) ? prev : next));
+          setBoyutlar((prev) => (sameSizes(prev, nextBoyutlar) ? prev : nextBoyutlar));
+          // Eksik dosyalari arka planda diske indir (zaten calisiyorsa atlar)
+          void onbellegiIsit(next, nextBoyutlar, indexRef.current);
         })
         .catch(() => {
           /* ag koptuysa mevcut listeyle devam et */
@@ -99,6 +119,11 @@ export function VideoPlaylist({
   // Liste kisalirsa index tasabilir; modulo ile guvenli tut
   const safeIndex = list.length ? ((index % list.length) + list.length) % list.length : 0;
   const current = list[safeIndex] ?? null;
+  const currentSrc = current ? medyaAdresi(current, boyutlar[current]) : null;
+
+  useEffect(() => {
+    indexRef.current = safeIndex;
+  }, [safeIndex]);
 
   const goNext = useCallback(() => {
     if (list.length === 0) return;
@@ -124,7 +149,7 @@ export function VideoPlaylist({
   useEffect(() => {
     const v = videoRef.current;
     // Gorsel gosterilirken <video> render edilmiyor
-    if (!v || !current || gorsel) return;
+    if (!v || !currentSrc || gorsel) return;
     const keepSilent = () => {
       v.muted = true;
       v.volume = 0;
@@ -135,7 +160,14 @@ export function VideoPlaylist({
     const p = v.play();
     if (p !== undefined) p.catch(() => {});
     return () => v.removeEventListener("volumechange", keepSilent);
-  }, [current, gorsel]);
+  }, [currentSrc, gorsel]);
+
+  // Video oynarken veri yetismeyip durursa say. Videonun basindaki ilk
+  // yukleme beklemesi ve ileri/geri sarma beklemesi takilma degil, sayilmaz.
+  const handleWaiting = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const v = e.currentTarget;
+    if (v.currentTime > 0.5 && !v.seeking) takilmaRef.current += 1;
+  }, []);
 
   // Gorselin "bitis" olayi yok; sureyi biz sayip siradakine geciyoruz.
   // Havuzda tek gorsel varsa zamanlayici kurulmaz, kalici olarak durur.
@@ -157,7 +189,12 @@ export function VideoPlaylist({
   const sendBeat = useCallback(
     (id: string) => {
       if (!id) return;
-      const body = JSON.stringify({ id, ...beatRef.current });
+      const body = JSON.stringify({
+        id,
+        ...beatRef.current,
+        onbellek: onbellekDurumu(),
+        takilma: takilmaRef.current,
+      });
       fetch("/api/heartbeat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -263,7 +300,7 @@ export function VideoPlaylist({
         // eslint-disable-next-line @next/next/no-img-element
         <img
           className="relative z-0 block h-full w-full min-h-0 object-contain"
-          src={mediaSrc(current)}
+          src={currentSrc ?? undefined}
           alt=""
           onError={handleError}
         />
@@ -271,13 +308,14 @@ export function VideoPlaylist({
         <video
           ref={videoRef}
           className="relative z-0 block h-full w-full min-h-0 object-contain"
-          src={current ? mediaSrc(current) : undefined}
+          src={currentSrc ?? undefined}
           playsInline
           autoPlay
           muted
           loop={singleVideo}
           onEnded={goNext}
           onError={handleError}
+          onWaiting={handleWaiting}
           aria-label="Video oynatıcı (sessiz)"
         />
       )}

@@ -54,6 +54,11 @@ export const ekranKaydi = pgTable("ekran_kaydi", {
   sira: integer("sira").notNull().default(0),
   toplam: integer("toplam").notNull().default(0),
   userAgent: text("user_agent"),
+  /** Kiosk diskinde hazır medya sayısı / listedeki toplam */
+  onbellekHazir: integer("onbellek_hazir").notNull().default(0),
+  onbellekToplam: integer("onbellek_toplam").notNull().default(0),
+  /** Sayfa açıldığından beri oynatma sırasında yaşanan takılma sayısı */
+  takilma: integer("takilma").notNull().default(0),
   ilkGorulme: timestamp("ilk_gorulme", { withTimezone: true }).notNull().defaultNow(),
   sonSinyal: timestamp("son_sinyal", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -108,6 +113,11 @@ CREATE TABLE IF NOT EXISTS ekran_kaydi (
   ilk_gorulme   timestamptz NOT NULL DEFAULT now(),
   son_sinyal    timestamptz NOT NULL DEFAULT now()
 );
+
+-- Sonradan eklenen kolonlar: mevcut kurulumlarda tabloyu bozmadan ekler
+ALTER TABLE ekran_kaydi ADD COLUMN IF NOT EXISTS onbellek_hazir  integer NOT NULL DEFAULT 0;
+ALTER TABLE ekran_kaydi ADD COLUMN IF NOT EXISTS onbellek_toplam integer NOT NULL DEFAULT 0;
+ALTER TABLE ekran_kaydi ADD COLUMN IF NOT EXISTS takilma         integer NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS sube_ipleri_sube_idx ON sube_ipleri (sube_id);
 CREATE INDEX IF NOT EXISTS video_atamalari_sube_idx ON video_atamalari (sube_id);

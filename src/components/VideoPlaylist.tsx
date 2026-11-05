@@ -9,6 +9,8 @@ import {
   onbellegiIsit,
   onbellekDurumu,
 } from "@/lib/onbellek";
+import { kioskSurumu, surumGeldi, yenile, yenilemeBekliyor } from "@/lib/guncelleme";
+import type { VideoTeshis } from "@/lib/db/schema";
 
 const shellClassName =
   "fixed left-0 right-0 top-0 z-0 w-full max-w-[100vw] overflow-hidden bg-black";
@@ -51,6 +53,10 @@ function sameList(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
+function teshisKaydi(hepsi: Record<string, VideoTeshis>, dosya: string): VideoTeshis {
+  return (hepsi[dosya] ??= { oynatma: 0, takilma: 0, kare: 0, kayip: 0 });
+}
+
 function sameSizes(a: Record<string, number>, b: Record<string, number>): boolean {
   const ka = Object.keys(a);
   return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
@@ -75,8 +81,12 @@ export function VideoPlaylist({
 
   // Isitma su an oynayanin siradakinden baslasin diye efekt disindan okunuyor
   const indexRef = useRef(0);
+  // Panele giden son durum (olay isleyicileri de buradan okur)
+  const beatRef = useRef({ current: null as string | null, index: 0, total: 0 });
   // Oynatma sirasinda "veri yetismedi, bekliyorum" sayisi — panele gider
   const takilmaRef = useRef(0);
+  // Video basina teshis: hangi video takiliyor, cihaz hangisini cozemiyor
+  const teshisRef = useRef<Record<string, VideoTeshis>>({});
 
   useEffect(() => {
     onbellegiBaslat();
@@ -93,8 +103,15 @@ export function VideoPlaylist({
     const fetchList = () => {
       fetch(url, { cache: "no-store" })
         .then((r) => r.json())
-        .then((data: { videos?: string[]; boyutlar?: Record<string, number> }) => {
+        .then(
+          (data: {
+            videos?: string[];
+            boyutlar?: Record<string, number>;
+            surum?: string;
+          }) => {
           if (cancelled) return;
+          // Yeni deploy varsa bir sonraki medya gecisinde sayfa yenilenir
+          surumGeldi(data.surum);
           const next = data.videos ?? [];
           const nextBoyutlar = data.boyutlar ?? {};
           // Ayni liste geldiyse state'e dokunma; oynayan video kesilmesin.
@@ -102,7 +119,8 @@ export function VideoPlaylist({
           setBoyutlar((prev) => (sameSizes(prev, nextBoyutlar) ? prev : nextBoyutlar));
           // Eksik dosyalari arka planda diske indir (zaten calisiyorsa atlar)
           void onbellegiIsit(next, nextBoyutlar, indexRef.current);
-        })
+          }
+        )
         .catch(() => {
           /* ag koptuysa mevcut listeyle devam et */
         });
@@ -130,6 +148,18 @@ export function VideoPlaylist({
     setIndex((i) => (i + 1) % list.length);
   }, [list.length]);
 
+  // Otomatik gecislerin hepsi buradan: yeni surum bekliyorsa video
+  // ortasinda degil, iki medya arasinda yenilenir.
+  const gecis = useCallback(() => {
+    if (yenilemeBekliyor()) {
+      void yenile().then((oldu) => {
+        if (!oldu) goNext();
+      });
+      return;
+    }
+    goNext();
+  }, [goNext]);
+
   const goPrev = useCallback(() => {
     if (list.length === 0) return;
     setIndex((i) => (i - 1 + list.length) % list.length);
@@ -143,8 +173,8 @@ export function VideoPlaylist({
 
   // Bozuk/eksik dosyada siyah ekranda kalmak yerine sonrakine gec
   const handleError = useCallback(() => {
-    if (list.length > 1) goNext();
-  }, [goNext, list.length]);
+    if (list.length > 1) gecis();
+  }, [gecis, list.length]);
 
   useEffect(() => {
     const v = videoRef.current;
@@ -166,20 +196,40 @@ export function VideoPlaylist({
   // yukleme beklemesi ve ileri/geri sarma beklemesi takilma degil, sayilmaz.
   const handleWaiting = useCallback((e: React.SyntheticEvent<HTMLVideoElement>) => {
     const v = e.currentTarget;
-    if (v.currentTime > 0.5 && !v.seeking) takilmaRef.current += 1;
+    if (v.currentTime <= 0.5 || v.seeking) return;
+    takilmaRef.current += 1;
+    const dosya = beatRef.current.current;
+    if (dosya) teshisKaydi(teshisRef.current, dosya).takilma += 1;
   }, []);
+
+  // Video sonuna kadar oynadiginda kare istatistigini kaydet. Atlanan kare
+  // orani yuksekse sorun ag degil, cihaz bu videoyu cozmekte zorlaniyor.
+  const handleEnded = useCallback(
+    (e: React.SyntheticEvent<HTMLVideoElement>) => {
+      const dosya = beatRef.current.current;
+      if (dosya) {
+        const t = teshisKaydi(teshisRef.current, dosya);
+        t.oynatma += 1;
+        const q = e.currentTarget.getVideoPlaybackQuality?.();
+        if (q) {
+          t.kare += q.totalVideoFrames;
+          t.kayip += q.droppedVideoFrames;
+        }
+      }
+      gecis();
+    },
+    [gecis]
+  );
 
   // Gorselin "bitis" olayi yok; sureyi biz sayip siradakine geciyoruz.
   // Havuzda tek gorsel varsa zamanlayici kurulmaz, kalici olarak durur.
   useEffect(() => {
     if (!gorsel || list.length < 2) return;
-    const t = window.setTimeout(() => goNext(), GORSEL_SURESI_MS);
+    const t = window.setTimeout(() => gecis(), GORSEL_SURESI_MS);
     return () => window.clearTimeout(t);
-  }, [gorsel, current, goNext, list.length]);
+  }, [gorsel, current, gecis, list.length]);
 
   /* ---------- Panel sinyali ---------- */
-
-  const beatRef = useRef({ current: null as string | null, index: 0, total: 0 });
 
   // Sinyalin tasiyacagi son durum; asagidaki efektlerden once calisir
   useEffect(() => {
@@ -194,6 +244,10 @@ export function VideoPlaylist({
         ...beatRef.current,
         onbellek: onbellekDurumu(),
         takilma: takilmaRef.current,
+        surum: kioskSurumu(),
+        // Sayfa acilisindan beri gecen sure: takilma sayisini saate bolmek icin
+        calisma: Math.round(performance.now() / 1000),
+        teshis: teshisRef.current,
       });
       fetch("/api/heartbeat", {
         method: "POST",
@@ -313,7 +367,7 @@ export function VideoPlaylist({
           autoPlay
           muted
           loop={singleVideo}
-          onEnded={goNext}
+          onEnded={handleEnded}
           onError={handleError}
           onWaiting={handleWaiting}
           aria-label="Video oynatıcı (sessiz)"

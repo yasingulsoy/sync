@@ -1,7 +1,15 @@
-import { and, asc, desc, eq, sql as raw } from "drizzle-orm";
+import { and, asc, desc, eq, lt, sql as raw } from "drizzle-orm";
 import { ipMatches } from "@/lib/screenGroups";
+import type { YayinAraligi } from "@/lib/yayin";
 import { getDb } from "./index";
-import { ekranKaydi, subeIpleri, subeler, videoAtamalari } from "./schema";
+import {
+  ekranKaydi,
+  medyaAyarlari,
+  subeIpleri,
+  subeler,
+  videoAtamalari,
+  type VideoTeshis,
+} from "./schema";
 
 export type SubeOzet = {
   id: number;
@@ -201,6 +209,9 @@ export type EkranSatiri = {
   onbellekHazir: number;
   onbellekToplam: number;
   takilma: number;
+  surum: string | null;
+  calismaSn: number;
+  teshis: Record<string, VideoTeshis> | null;
   ilkGorulme: string;
   sonSinyal: string;
 };
@@ -243,6 +254,9 @@ export async function beatScreen(input: {
   onbellekHazir: number;
   onbellekToplam: number;
   takilma: number;
+  surum: string | null;
+  calismaSn: number;
+  teshis: Record<string, VideoTeshis> | null;
 }): Promise<void> {
   const db = getDb();
   if (!db) return;
@@ -255,6 +269,9 @@ export async function beatScreen(input: {
       onbellekHazir: input.onbellekHazir,
       onbellekToplam: input.onbellekToplam,
       takilma: input.takilma,
+      surum: input.surum,
+      calismaSn: input.calismaSn,
+      teshis: input.teshis,
       sonSinyal: new Date(),
     })
     .where(eq(ekranKaydi.cihazId, input.cihazId));
@@ -277,6 +294,9 @@ export async function listScreens(): Promise<EkranSatiri[]> {
       onbellekHazir: ekranKaydi.onbellekHazir,
       onbellekToplam: ekranKaydi.onbellekToplam,
       takilma: ekranKaydi.takilma,
+      surum: ekranKaydi.surum,
+      calismaSn: ekranKaydi.calismaSn,
+      teshis: ekranKaydi.teshis,
       ilkGorulme: ekranKaydi.ilkGorulme,
       sonSinyal: ekranKaydi.sonSinyal,
     })
@@ -295,4 +315,50 @@ export async function forgetScreen(cihazId: string): Promise<void> {
   const db = getDb();
   if (!db) throw new Error("veritabani_yok");
   await db.delete(ekranKaydi).where(eq(ekranKaydi.cihazId, cihazId));
+}
+
+/** Belirtilen günden uzun süredir sinyal vermeyen cihaz kayıtlarını siler */
+export async function deleteStaleScreens(gun: number): Promise<number> {
+  const db = getDb();
+  if (!db) throw new Error("veritabani_yok");
+  const sinir = new Date(Date.now() - gun * 86_400_000);
+  const silinen = await db
+    .delete(ekranKaydi)
+    .where(lt(ekranKaydi.sonSinyal, sinir))
+    .returning({ id: ekranKaydi.cihazId });
+  return silinen.length;
+}
+
+/* ------------------------------------------------------------------ */
+/* Yayın tarihleri                                                     */
+/* ------------------------------------------------------------------ */
+
+/** dosya -> yayın aralığı. Satırı olmayan dosya süresiz yayındadır. */
+export async function listMediaSchedules(): Promise<Record<string, YayinAraligi>> {
+  const db = getDb();
+  if (!db) return {};
+  const rows = await db.select().from(medyaAyarlari);
+  const out: Record<string, YayinAraligi> = {};
+  for (const r of rows) out[r.dosya] = { baslangic: r.baslangic, bitis: r.bitis };
+  return out;
+}
+
+/** İki tarih de boşsa satır silinir (süresiz yayına döner). */
+export async function setMediaSchedule(
+  dosya: string,
+  aralik: YayinAraligi
+): Promise<void> {
+  const db = getDb();
+  if (!db) throw new Error("veritabani_yok");
+  if (!aralik.baslangic && !aralik.bitis) {
+    await db.delete(medyaAyarlari).where(eq(medyaAyarlari.dosya, dosya));
+    return;
+  }
+  await db
+    .insert(medyaAyarlari)
+    .values({ dosya, baslangic: aralik.baslangic, bitis: aralik.bitis })
+    .onConflictDoUpdate({
+      target: medyaAyarlari.dosya,
+      set: { baslangic: aralik.baslangic, bitis: aralik.bitis, guncellendi: new Date() },
+    });
 }

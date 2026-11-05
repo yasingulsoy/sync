@@ -1,61 +1,53 @@
 "use client";
 
-import { useActionState, useCallback, useEffect, useState, useTransition } from "react";
+import {
+  useActionState,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
+// Yalnızca tip: derlemede silinir, sunucu kodu tarayıcıya girmez
+import type { PanelVerisi } from "@/lib/db/panelData";
+import type { EkranSatiri, SubeOzet } from "@/lib/db/queries";
+import { isImageFile } from "@/lib/medya";
+import { gunFarki, kisaTarih, yayinDurumu, type YayinAraligi } from "@/lib/yayin";
 import {
   atamaDegistirAction,
   ekranUnutAction,
+  eskiKayitlariSilAction,
   ipEkleAction,
   ipSilAction,
   logoutAction,
+  medyaTakvimAction,
   subeEkleAction,
   subeSilAction,
   tumSubelerdeAction,
   type IslemSonucu,
 } from "./actions";
 
-type EkranSatiri = {
-  cihazId: string;
-  ip: string | null;
-  subeId: number | null;
-  subeAdi: string | null;
-  kaynak: string | null;
-  sonVideo: string | null;
-  sira: number;
-  toplam: number;
-  userAgent: string | null;
-  onbellekHazir: number;
-  onbellekToplam: number;
-  takilma: number;
-  ilkGorulme: string;
-  sonSinyal: string;
-};
+type Payload = PanelVerisi;
+type IpInfo = PanelVerisi["geo"][string];
 
-type SubeOzet = {
-  id: number;
-  kod: string;
-  ad: string;
-  aktif: boolean;
-  ipler: { id: number; ip: string; aciklama: string | null }[];
-  videoSayisi: number;
-};
-
-type IpInfo = { city: string; region: string; country: string; isp: string };
-
-type Payload = {
-  ok: boolean;
-  dbYok: boolean;
-  now: number;
-  ekranlar: EkranSatiri[];
-  subeler: SubeOzet[];
-  havuz: string[];
-  atamalar: Record<string, number[]>;
-  geo: Record<string, IpInfo>;
-  hata?: string;
-};
+/** Bu kadar gündür sinyal vermeyen cihaz varsayılan olarak gizlenir (panelData.ts ile aynı) */
+const ESKI_KAYIT_GUN = 7;
+/** Toplu silme bu kadar günden eskileri kapsar */
+const SILME_GUN = 30;
 
 /** Sinyal 60 sn'de bir gelir; 150 sn'dir ses yoksa ekranı "sessiz" sayarız. */
 const LIVE_WINDOW_MS = 150_000;
 const POLL_MS = 10_000;
+
+function eskiKayit(e: EkranSatiri, now: number): boolean {
+  return now - new Date(e.sonSinyal).getTime() > ESKI_KAYIT_GUN * 86_400_000;
+}
+
+function canliMi(e: EkranSatiri, now: number): boolean {
+  return now - new Date(e.sonSinyal).getTime() < LIVE_WINDOW_MS;
+}
+
+const SAYI = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 1 });
 
 function since(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -131,6 +123,8 @@ export function ScreenPanel({ baslangic }: { baslangic: Payload }) {
   const canli = data.ekranlar.filter(
     (e) => now - new Date(e.sonSinyal).getTime() < LIVE_WINDOW_MS
   );
+  const guncel = data.ekranlar.filter((e) => !eskiKayit(e, now));
+  const eskiSurumde = canli.filter((e) => e.surum !== data.surum).length;
 
   return (
     <div className="space-y-6">
@@ -140,8 +134,15 @@ export function ScreenPanel({ baslangic }: { baslangic: Payload }) {
           <p className="mt-1 text-sm text-zinc-500">
             <span className="text-emerald-400">{canli.length} ekran yayında</span>
             {" · "}
-            {data.ekranlar.length} kayıtlı cihaz · {data.subeler.length} şube ·{" "}
-            {data.havuz.length} video
+            {guncel.length} cihaz · {data.subeler.length} şube · {data.havuz.length} medya
+            {eskiSurumde > 0 && (
+              <span
+                className="ml-2 text-amber-400"
+                title="Bu kiosklar yeni sürümü henüz almadı. Kendiliğinden yenilenmezlerse Chrome'u yeniden başlatın."
+              >
+                · {eskiSurumde} kiosk eski sürümde
+              </span>
+            )}
             {error && <span className="ml-2 text-amber-400">({error})</span>}
           </p>
         </div>
@@ -210,10 +211,19 @@ function EkranlarTab({
   onChange: () => void;
 }) {
   const [pending, start] = useTransition();
+  const [eskileriGoster, setEskileriGoster] = useState(false);
+  const [silmeSonucu, setSilmeSonucu] = useState<string | null>(null);
+
+  const guncel = data.ekranlar.filter((e) => !eskiKayit(e, now));
+  const eskiSayisi = data.ekranlar.length - guncel.length;
+  const silinebilir = data.ekranlar.filter(
+    (e) => now - new Date(e.sonSinyal).getTime() > SILME_GUN * 86_400_000
+  ).length;
+  const gosterilen = eskileriGoster ? data.ekranlar : guncel;
 
   const eslesmemis = [
     ...new Map(
-      data.ekranlar.filter((e) => !e.subeId && e.ip).map((e) => [e.ip as string, e])
+      guncel.filter((e) => !e.subeId && e.ip).map((e) => [e.ip as string, e])
     ).values(),
   ];
 
@@ -227,14 +237,16 @@ function EkranlarTab({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      <SubeDurumlari data={data} now={now} />
+
       {eslesmemis.length > 0 && (
         <section className="space-y-3 rounded-lg border border-amber-900/50 bg-amber-950/15 p-4">
           <h2 className="font-medium text-amber-300">
             Şubesi belirlenmemiş {eslesmemis.length} IP
           </h2>
           <p className="text-sm text-zinc-400">
-            Bu ekranlar havuzdaki tüm videoları oynatıyor. Konum bilgisine bakıp
+            Bu ekranlar havuzdaki tüm medyayı oynatıyor. Konum bilgisine bakıp
             hangi şube olduklarını belirleyin, sonra <strong>Şubeler</strong>{" "}
             sekmesinden ilgili şubeye IP olarak ekleyin.
           </p>
@@ -252,106 +264,342 @@ function EkranlarTab({
         </section>
       )}
 
-      <div className="overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950/80">
-        <table className="w-full min-w-[64rem] text-left text-sm">
-          <thead className="text-xs uppercase tracking-wide text-zinc-600">
-            <tr className="border-b border-zinc-800">
-              <th className="px-4 py-2 font-medium">Durum</th>
-              <th className="px-4 py-2 font-medium">Şube</th>
-              <th className="px-4 py-2 font-medium">IP</th>
-              <th className="px-4 py-2 font-medium">Konum / operatör</th>
-              <th className="px-4 py-2 font-medium">Şu an oynatılan</th>
-              <th className="px-4 py-2 font-medium">Sıra</th>
-              <th className="px-4 py-2 font-medium">Önbellek</th>
-              <th className="px-4 py-2 font-medium">Takılma</th>
-              <th className="px-4 py-2 font-medium">Son sinyal</th>
-              <th className="px-4 py-2 font-medium">Cihaz</th>
-              <th className="px-4 py-2" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-900">
-            {data.ekranlar.map((e) => {
-              const alive = now - new Date(e.sonSinyal).getTime() < LIVE_WINDOW_MS;
-              return (
-                <tr key={e.cihazId} className={alive ? "" : "opacity-50"}>
-                  <td className="whitespace-nowrap px-4 py-2">
-                    <span
-                      className={`inline-flex items-center gap-1.5 ${
-                        alive ? "text-emerald-400" : "text-zinc-500"
-                      }`}
-                    >
+      <TakilmaAnalizi data={data} now={now} />
+
+      <section className="space-y-2">
+        <h2 className="text-sm font-medium text-zinc-400">Cihazlar</h2>
+        <div className="overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950/80">
+          <table className="w-full min-w-[64rem] text-left text-sm">
+            <thead className="text-xs uppercase tracking-wide text-zinc-600">
+              <tr className="border-b border-zinc-800">
+                <th className="px-4 py-2 font-medium">Durum</th>
+                <th className="px-4 py-2 font-medium">Şube</th>
+                <th className="px-4 py-2 font-medium">IP</th>
+                <th className="px-4 py-2 font-medium">Konum / operatör</th>
+                <th className="px-4 py-2 font-medium">Şu an oynatılan</th>
+                <th className="px-4 py-2 font-medium">Sıra</th>
+                <th className="px-4 py-2 font-medium">Önbellek</th>
+                <th className="px-4 py-2 font-medium">Takılma</th>
+                <th className="px-4 py-2 font-medium">Son sinyal</th>
+                <th className="px-4 py-2 font-medium">Cihaz</th>
+                <th className="px-4 py-2" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-900">
+              {gosterilen.map((e) => {
+                const alive = canliMi(e, now);
+                const eskiSurum = alive && e.surum !== data.surum;
+                return (
+                  <tr key={e.cihazId} className={alive ? "" : "opacity-50"}>
+                    <td className="whitespace-nowrap px-4 py-2">
                       <span
-                        className={`h-2 w-2 rounded-full ${
-                          alive ? "bg-emerald-400" : "bg-zinc-600"
+                        className={`inline-flex items-center gap-1.5 ${
+                          alive ? "text-emerald-400" : "text-zinc-500"
                         }`}
-                        aria-hidden
-                      />
-                      {alive ? "Yayında" : "Sessiz"}
-                    </span>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2 text-zinc-100">
-                    {e.subeAdi ?? (
-                      <span className="text-amber-400/80">belirlenmedi</span>
-                    )}
-                    {e.kaynak === "url" && (
-                      <span className="ml-2 text-xs text-zinc-600">(URL ile)</span>
-                    )}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2 font-mono text-xs text-zinc-300">
-                    {e.ip || "—"}
-                  </td>
-                  <td className="max-w-[16rem] truncate px-4 py-2 text-zinc-400">
-                    {placeOf(data.geo?.[e.ip ?? ""]) || "—"}
-                  </td>
-                  <td className="max-w-[20rem] truncate px-4 py-2 text-zinc-100">
-                    {fileName(e.sonVideo)}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2 tabular-nums text-zinc-500">
-                    {e.toplam ? `${e.sira + 1}/${e.toplam}` : "—"}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2 tabular-nums">
-                    <OnbellekRozeti hazir={e.onbellekHazir} toplam={e.onbellekToplam} />
-                  </td>
-                  <td
-                    className={`whitespace-nowrap px-4 py-2 tabular-nums ${
-                      e.takilma > 0 ? "text-amber-400" : "text-zinc-600"
-                    }`}
-                    title="Sayfa açıldığından beri video verisi yetişmeyip duraklama sayısı"
-                  >
-                    {e.takilma}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2 text-zinc-500">
-                    {since(now - new Date(e.sonSinyal).getTime())}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2 text-zinc-500">
-                    {deviceKind(e.userAgent)}
-                    <span className="ml-2 font-mono text-xs text-zinc-700">
-                      {e.cihazId.slice(0, 6)}
-                    </span>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2 text-right">
-                    <button
-                      type="button"
-                      disabled={pending}
-                      onClick={() => {
-                        if (!confirm("Bu cihaz kaydı silinsin mi?")) return;
-                        start(async () => {
-                          await ekranUnutAction(e.cihazId);
-                          onChange();
-                        });
-                      }}
-                      className="text-xs text-zinc-600 hover:text-red-400 disabled:opacity-50"
-                    >
-                      Kaydı sil
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                      >
+                        <span
+                          className={`h-2 w-2 rounded-full ${
+                            alive ? "bg-emerald-400" : "bg-zinc-600"
+                          }`}
+                          aria-hidden
+                        />
+                        {alive ? "Yayında" : "Sessiz"}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-2 text-zinc-100">
+                      {e.subeAdi ?? (
+                        <span className="text-amber-400/80">belirlenmedi</span>
+                      )}
+                      {e.kaynak === "url" && (
+                        <span className="ml-2 text-xs text-zinc-600">(URL ile)</span>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-2 font-mono text-xs text-zinc-300">
+                      {e.ip || "—"}
+                    </td>
+                    <td className="max-w-[16rem] truncate px-4 py-2 text-zinc-400">
+                      {placeOf(data.geo?.[e.ip ?? ""]) || "—"}
+                    </td>
+                    <td className="max-w-[20rem] truncate px-4 py-2 text-zinc-100">
+                      {fileName(e.sonVideo)}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-2 tabular-nums text-zinc-500">
+                      {e.toplam ? `${e.sira + 1}/${e.toplam}` : "—"}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-2 tabular-nums">
+                      <OnbellekRozeti hazir={e.onbellekHazir} toplam={e.onbellekToplam} />
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-2 tabular-nums">
+                      <TakilmaHucresi ekran={e} />
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-2 text-zinc-500">
+                      {since(now - new Date(e.sonSinyal).getTime())}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-2 text-zinc-500">
+                      {deviceKind(e.userAgent)}
+                      <span className="ml-2 font-mono text-xs text-zinc-700">
+                        {e.cihazId.slice(0, 6)}
+                      </span>
+                      {eskiSurum && (
+                        <span
+                          className="ml-2 rounded border border-amber-800/60 px-1.5 py-0.5 text-[11px] text-amber-300"
+                          title="Bu kiosk yeni sürümü henüz almadı. Birkaç dakika içinde kendiliğinden yenilenmezse Chrome'u yeniden başlatın."
+                        >
+                          eski sürüm
+                        </span>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-2 text-right">
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => {
+                          if (!confirm("Bu cihaz kaydı silinsin mi?")) return;
+                          start(async () => {
+                            await ekranUnutAction(e.cihazId);
+                            onChange();
+                          });
+                        }}
+                        className="text-xs text-zinc-600 hover:text-red-400 disabled:opacity-50"
+                      >
+                        Kaydı sil
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {(eskiSayisi > 0 || silmeSonucu) && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-zinc-500">
+            {eskiSayisi > 0 && (
+              <button
+                type="button"
+                onClick={() => setEskileriGoster((g) => !g)}
+                className="underline-offset-4 hover:text-zinc-300 hover:underline"
+              >
+                {eskileriGoster
+                  ? "Eski kayıtları gizle"
+                  : `${ESKI_KAYIT_GUN} günden eski ${eskiSayisi} kaydı göster`}
+              </button>
+            )}
+            {silinebilir > 0 && (
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  if (
+                    !confirm(
+                      `${SILME_GUN} günden uzun süredir sinyal vermeyen ${silinebilir} cihaz kaydı silinsin mi? Bu cihazlardan biri tekrar açılırsa kendiliğinden yeniden kaydolur.`
+                    )
+                  )
+                    return;
+                  start(async () => {
+                    const sonuc = await eskiKayitlariSilAction(SILME_GUN);
+                    setSilmeSonucu(
+                      sonuc.hata ?? `${sonuc.silinen ?? 0} eski kayıt silindi.`
+                    );
+                    onChange();
+                  });
+                }}
+                className="text-zinc-600 hover:text-red-400 disabled:opacity-50"
+              >
+                {SILME_GUN} günden eski {silinebilir} kaydı sil
+              </button>
+            )}
+            {silmeSonucu && <span className="text-zinc-400">{silmeSonucu}</span>}
+          </div>
+        )}
+      </section>
     </div>
+  );
+}
+
+/** Her şubede kaç ekranın yayında olduğu — hiç bağlanmayan şube göze çarpsın */
+function SubeDurumlari({ data, now }: { data: Payload; now: number }) {
+  if (data.subeler.length === 0) return null;
+
+  const ozet = data.subeler.map((s) => {
+    const cihazlar = data.ekranlar.filter((e) => e.subeId === s.id && !eskiKayit(e, now));
+    const canli = cihazlar.filter((e) => canliMi(e, now)).length;
+    return { sube: s, toplam: cihazlar.length, canli };
+  });
+  const baglantiYok = ozet.filter((o) => o.toplam === 0).length;
+  const sessiz = ozet.filter((o) => o.toplam > 0 && o.canli === 0).length;
+
+  return (
+    <section className="space-y-2">
+      <h2 className="text-sm font-medium text-zinc-400">
+        Şubeler
+        {(baglantiYok > 0 || sessiz > 0) && (
+          <span className="ml-2 font-normal text-zinc-600">
+            {[
+              sessiz > 0 ? `${sessiz} şube sessiz` : "",
+              baglantiYok > 0 ? `${baglantiYok} şubeden hiç sinyal yok` : "",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        )}
+      </h2>
+      <div className="flex flex-wrap gap-2">
+        {ozet.map(({ sube, toplam, canli }) => {
+          const renk =
+            canli > 0
+              ? "border-emerald-800/60 bg-emerald-950/30 text-emerald-300"
+              : toplam > 0
+                ? "border-amber-800/60 bg-amber-950/20 text-amber-300"
+                : "border-zinc-800 bg-zinc-900/40 text-zinc-500";
+          const etiket =
+            canli > 0 ? `${canli} yayında` : toplam > 0 ? "sessiz" : "sinyal yok";
+          const aciklama =
+            canli > 0
+              ? `${toplam} cihazdan ${canli} tanesi şu an yayında`
+              : toplam > 0
+                ? `${toplam} cihaz kayıtlı ama şu an hiçbiri sinyal vermiyor`
+                : `Son ${ESKI_KAYIT_GUN} günde bu şubeden hiç sinyal gelmedi: kiosk kapalı, kurulmamış ya da listede olmayan bir IP'den çıkıyor olabilir.`;
+          return (
+            <span
+              key={sube.id}
+              className={`rounded-md border px-2.5 py-1 text-xs ${renk}`}
+              title={aciklama}
+            >
+              {sube.ad} · {etiket}
+            </span>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Hangi video, kaç cihazda takılıyor. Kare kaybı yüksekse cihaz o videoyu
+ * zamanında çözemiyor demektir; ağla ilgisi yoktur.
+ */
+function TakilmaAnalizi({ data, now }: { data: Payload; now: number }) {
+  const kaynak = data.ekranlar.filter(
+    (e) => e.teshis && now - new Date(e.sonSinyal).getTime() < 86_400_000
+  );
+
+  const toplam = new Map<
+    string,
+    { oynatma: number; takilma: number; kare: number; kayip: number; ekran: number }
+  >();
+  for (const e of kaynak) {
+    for (const [dosya, t] of Object.entries(e.teshis ?? {})) {
+      const x = toplam.get(dosya) ?? { oynatma: 0, takilma: 0, kare: 0, kayip: 0, ekran: 0 };
+      x.oynatma += t.oynatma;
+      x.takilma += t.takilma;
+      x.kare += t.kare;
+      x.kayip += t.kayip;
+      if (t.takilma > 0) x.ekran += 1;
+      toplam.set(dosya, x);
+    }
+  }
+  const satirlar = [...toplam.entries()].sort((a, b) => b[1].takilma - a[1].takilma);
+
+  return (
+    <section className="space-y-2">
+      <h2 className="text-sm font-medium text-zinc-400">
+        Takılma analizi
+        <span className="ml-2 font-normal text-zinc-600">
+          son 24 saat · {kaynak.length} cihaz
+        </span>
+      </h2>
+      {satirlar.length === 0 ? (
+        <p className="rounded-lg border border-zinc-800 bg-zinc-950/60 p-4 text-sm text-zinc-500">
+          Henüz veri yok. Kiosklar yeni sürüme geçip birkaç video oynattıkça burası
+          dolacak.
+        </p>
+      ) : (
+        <>
+          <p className="text-xs text-zinc-500">
+            <strong className="text-zinc-400">Kare kaybı</strong> yüksekse cihaz o
+            videoyu zamanında çözemiyor: sorun ağda değil, donanımda. Bu durumda
+            videoyu daha düşük kare hızıyla (30 kare/sn) yeniden kodlamak genelde
+            çözer.
+          </p>
+          <div className="overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950/80">
+            <table className="w-full min-w-[40rem] text-left text-sm">
+              <thead className="text-xs uppercase tracking-wide text-zinc-600">
+                <tr className="border-b border-zinc-800">
+                  <th className="px-4 py-2 font-medium">Video</th>
+                  <th className="px-4 py-2 text-right font-medium">Oynatma</th>
+                  <th className="px-4 py-2 text-right font-medium">Takılma</th>
+                  <th className="px-4 py-2 text-right font-medium">Kare kaybı</th>
+                  <th className="px-4 py-2 text-right font-medium">Takılan cihaz</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-900">
+                {satirlar.map(([dosya, x]) => {
+                  const kayipYuzde = x.kare > 0 ? (x.kayip / x.kare) * 100 : null;
+                  return (
+                    <tr key={dosya}>
+                      <td className="max-w-[24rem] truncate px-4 py-2 text-zinc-100">{dosya}</td>
+                      <td className="px-4 py-2 text-right tabular-nums text-zinc-400">
+                        {x.oynatma}
+                      </td>
+                      <td
+                        className={`px-4 py-2 text-right tabular-nums ${
+                          x.takilma > 0 ? "text-amber-400" : "text-zinc-600"
+                        }`}
+                      >
+                        {x.takilma}
+                      </td>
+                      <td
+                        className={`px-4 py-2 text-right tabular-nums ${
+                          kayipYuzde === null
+                            ? "text-zinc-700"
+                            : kayipYuzde >= 5
+                              ? "text-red-400"
+                              : kayipYuzde >= 1
+                                ? "text-amber-400"
+                                : "text-zinc-500"
+                        }`}
+                      >
+                        {kayipYuzde === null ? "—" : `%${SAYI.format(kayipYuzde)}`}
+                      </td>
+                      <td className="px-4 py-2 text-right tabular-nums text-zinc-400">
+                        {x.ekran}/{kaynak.length}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** Ham sayı yerine saat başına takılma: sayfası 3 hafta açık kalan cihaz kıyaslanabilsin */
+function TakilmaHucresi({ ekran }: { ekran: EkranSatiri }) {
+  const saat = ekran.calismaSn / 3600;
+  // Eski sürüm sayfa çalışma süresini göndermiyor; ham sayıyı göster
+  if (saat < 0.25) {
+    return (
+      <span
+        className={ekran.takilma > 0 ? "text-amber-400" : "text-zinc-600"}
+        title="Sayfa açıldığından beri video verisi yetişmeyip duraklama sayısı"
+      >
+        {ekran.takilma}
+      </span>
+    );
+  }
+  const oran = ekran.takilma / saat;
+  const renk = oran >= 2 ? "text-red-400" : oran > 0 ? "text-amber-400" : "text-zinc-600";
+  return (
+    <span
+      className={renk}
+      title={`${ekran.takilma} takılma, sayfa ${SAYI.format(saat)} saattir açık`}
+    >
+      {SAYI.format(oran)}/sa
+    </span>
   );
 }
 
@@ -546,6 +794,195 @@ function SubeKarti({ sube, onChange }: { sube: SubeOzet; onChange: () => void })
 }
 
 /* ------------------------------------------------------------------ */
+/* Yayın takvimi                                                       */
+/* ------------------------------------------------------------------ */
+
+function YayinTakvimi({ data, onChange }: { data: Payload; onChange: () => void }) {
+  return (
+    <section className="space-y-2">
+      <h2 className="text-sm font-medium text-zinc-400">Yayın takvimi</h2>
+      <p className="text-xs text-zinc-500">
+        Tarih girilen medya yalnızca o aralıkta oynar; bitiş günü gece yarısına
+        kadar dahildir. Süresi dolan medya bütün ekranlardan kendiliğinden düşer,
+        tik kaldırmanız gerekmez. Boş bırakılan tarih sınırsız demektir.
+      </p>
+      <div className="overflow-x-auto rounded-lg border border-zinc-800 bg-zinc-950/80">
+        <table className="w-full min-w-[48rem] text-left text-sm">
+          <thead className="text-xs uppercase tracking-wide text-zinc-600">
+            <tr className="border-b border-zinc-800">
+              <th className="px-4 py-2 font-medium">Medya</th>
+              <th className="px-4 py-2 font-medium">Başlangıç</th>
+              <th className="px-4 py-2 font-medium">Bitiş</th>
+              <th className="px-4 py-2 font-medium">Durum</th>
+              <th className="px-4 py-2" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-900">
+            {data.havuz.map((dosya) => (
+              <TakvimSatiri
+                key={dosya}
+                dosya={dosya}
+                boyut={data.boyutlar[dosya]}
+                sunucu={data.takvim[dosya]}
+                bugun={data.bugun}
+                onChange={onChange}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function TakvimSatiri({
+  dosya,
+  boyut,
+  sunucu,
+  bugun,
+  onChange,
+}: {
+  dosya: string;
+  boyut: number | undefined;
+  sunucu: YayinAraligi | undefined;
+  bugun: string;
+  onChange: () => void;
+}) {
+  const [bas, setBas] = useState(sunucu?.baslangic ?? "");
+  const [bit, setBit] = useState(sunucu?.bitis ?? "");
+  const [kirli, setKirli] = useState(false);
+  const [hata, setHata] = useState<string | null>(null);
+  const [kaydediyor, start] = useTransition();
+  const zamanlayici = useRef<number | undefined>(undefined);
+
+  // Sunucudaki değer değişirse (kaydettik ya da başka biri düzenledi) yereli
+  // güncelle — ama kullanıcı o an yazıyorsa yazdığının üstüne yazma.
+  const sunucuAnahtar = `${sunucu?.baslangic ?? ""}|${sunucu?.bitis ?? ""}`;
+  const [sonAnahtar, setSonAnahtar] = useState(sunucuAnahtar);
+  if (!kirli && sunucuAnahtar !== sonAnahtar) {
+    setSonAnahtar(sunucuAnahtar);
+    setBas(sunucu?.baslangic ?? "");
+    setBit(sunucu?.bitis ?? "");
+  }
+
+  useEffect(() => () => window.clearTimeout(zamanlayici.current), []);
+
+  // Takvimden seçince de, elle yazınca da: yazmayı bitirince bir kez kaydet
+  const kaydet = (yeniBas: string, yeniBit: string, gecikme = 700) => {
+    window.clearTimeout(zamanlayici.current);
+    zamanlayici.current = window.setTimeout(() => {
+      start(async () => {
+        const sonuc = await medyaTakvimAction(dosya, yeniBas, yeniBit);
+        setHata(sonuc.hata);
+        setKirli(false);
+        onChange();
+      });
+    }, gecikme);
+  };
+
+  const durum = yayinDurumu(sunucu, bugun);
+  const kalanGun = sunucu?.bitis ? gunFarki(bugun, sunucu.bitis) : null;
+
+  let rozet: { metin: string; renk: string };
+  if (durum === "bitti") {
+    rozet = {
+      metin: `Süresi doldu · son gün ${kisaTarih(sunucu!.bitis!)}`,
+      renk: "text-red-400",
+    };
+  } else if (durum === "baslamadi") {
+    rozet = {
+      metin: `Başlamadı · başlangıç ${kisaTarih(sunucu!.baslangic!)}`,
+      renk: "text-sky-400",
+    };
+  } else if (kalanGun !== null) {
+    rozet =
+      kalanGun <= 3
+        ? {
+            metin: kalanGun === 0 ? "Bugün son gün" : `Yayında · ${kalanGun} gün kaldı`,
+            renk: "text-amber-400",
+          }
+        : {
+            metin: `Yayında · son gün ${kisaTarih(sunucu!.bitis!)}`,
+            renk: "text-emerald-400",
+          };
+  } else {
+    rozet = { metin: sunucu ? "Yayında" : "Süresiz", renk: "text-zinc-500" };
+  }
+
+  const girdi =
+    "rounded-md border border-zinc-700 bg-black px-2 py-1 text-sm text-zinc-100 outline-none focus:border-sky-500 [color-scheme:dark]";
+
+  return (
+    <tr className={durum === "yayinda" ? "" : "bg-zinc-900/40"}>
+      <td className="max-w-[22rem] px-4 py-2">
+        <div className="truncate text-zinc-100">{dosya}</div>
+        <div className="text-xs text-zinc-600">
+          {isImageFile(dosya) ? "Görsel" : "Video"}
+          {boyut ? ` · ${SAYI.format(boyut / 1_048_576)} MB` : ""}
+        </div>
+      </td>
+      <td className="px-4 py-2">
+        <input
+          type="date"
+          value={bas}
+          max={bit || undefined}
+          onChange={(e) => {
+            setBas(e.target.value);
+            setKirli(true);
+            setHata(null);
+            kaydet(e.target.value, bit);
+          }}
+          className={girdi}
+          aria-label={`${dosya} başlangıç tarihi`}
+        />
+      </td>
+      <td className="px-4 py-2">
+        <input
+          type="date"
+          value={bit}
+          min={bas || undefined}
+          onChange={(e) => {
+            setBit(e.target.value);
+            setKirli(true);
+            setHata(null);
+            kaydet(bas, e.target.value);
+          }}
+          className={girdi}
+          aria-label={`${dosya} bitiş tarihi`}
+        />
+      </td>
+      <td className="whitespace-nowrap px-4 py-2 text-xs">
+        {hata ? (
+          <span className="text-red-300">{hata}</span>
+        ) : kirli || kaydediyor ? (
+          <span className="text-zinc-500">Kaydediliyor…</span>
+        ) : (
+          <span className={rozet.renk}>{rozet.metin}</span>
+        )}
+      </td>
+      <td className="px-4 py-2 text-right">
+        {(bas || bit) && (
+          <button
+            type="button"
+            onClick={() => {
+              setBas("");
+              setBit("");
+              setKirli(true);
+              setHata(null);
+              kaydet("", "", 0);
+            }}
+            className="text-xs text-zinc-600 hover:text-zinc-300"
+            title="Tarihleri kaldır, süresiz yayına al"
+          >
+            Temizle
+          </button>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Videolar — tik matrisi                                              */
 /* ------------------------------------------------------------------ */
 
@@ -616,10 +1053,14 @@ function VideolarTab({ data, onChange }: { data: Payload; onChange: () => void }
   }
 
   return (
-    <div className="space-y-3">
-      <p className="text-sm text-zinc-500">
-        Bir videonun hangi şubelerde oynayacağını işaretleyin. Hiç işaret
-        almayan şube havuzdaki <strong>tüm</strong> videoları oynatır. Değişiklik
+    <div className="space-y-8">
+      <YayinTakvimi data={data} onChange={onChange} />
+
+      <section className="space-y-2">
+      <h2 className="text-sm font-medium text-zinc-400">Şubelere atama</h2>
+      <p className="text-xs text-zinc-500">
+        Bir medyanın hangi şubelerde oynayacağını işaretleyin. Hiç işaret
+        almayan şube havuzdaki <strong>tüm</strong> medyayı oynatır. Değişiklik
         anında kaydedilir; ekranlar en geç 5 dakika içinde yeni listeyi çeker.
         {hata && <span className="ml-2 text-red-300">{hata}</span>}
       </p>
@@ -646,14 +1087,25 @@ function VideolarTab({ data, onChange }: { data: Payload; onChange: () => void }
             {data.havuz.map((dosya) => {
               const secili = atamalar[dosya] ?? [];
               const tumu = secili.length === data.subeler.length;
+              const durum = yayinDurumu(data.takvim[dosya], data.bugun);
               return (
-                <tr key={dosya}>
+                <tr key={dosya} className={durum === "yayinda" ? "" : "opacity-40"}>
                   <td className="sticky left-0 max-w-[24rem] truncate bg-zinc-950 px-4 py-2 text-zinc-100">
                     {dosya}
-                    {secili.length === 0 && (
-                      <span className="ml-2 text-xs text-zinc-600">
-                        (hiçbir şubede seçili değil)
+                    {durum !== "yayinda" ? (
+                      <span
+                        className={`ml-2 text-xs ${
+                          durum === "bitti" ? "text-red-400" : "text-sky-400"
+                        }`}
+                      >
+                        ({durum === "bitti" ? "süresi doldu" : "henüz başlamadı"})
                       </span>
+                    ) : (
+                      secili.length === 0 && (
+                        <span className="ml-2 text-xs text-zinc-600">
+                          (hiçbir şubede seçili değil)
+                        </span>
+                      )
                     )}
                   </td>
                   <td className="px-3 py-2 text-center">
@@ -682,6 +1134,7 @@ function VideolarTab({ data, onChange }: { data: Payload; onChange: () => void }
           </tbody>
         </table>
       </div>
+      </section>
     </div>
   );
 }

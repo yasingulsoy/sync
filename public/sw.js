@@ -19,7 +19,10 @@
  *   self.addEventListener("activate", () => self.registration.unregister());
  */
 
+// Adı değiştirmeyin: değişirse her kiosk bütün medyayı yeniden indirir
 const MEDYA_CACHE = "hospisync-medya-v1";
+const META_CACHE = "hospisync-meta";
+const YENILEME_SOGUMA_MS = 10 * 60_000;
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -28,6 +31,10 @@ self.addEventListener("install", () => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
+      // Medya önbelleği zaten varsa bu cihaz önceki sürümü çalıştırıyordu:
+      // bu bir güncelleme. (İlk kurulumda önbellek henüz yoktur.)
+      const guncelleme = await caches.has(MEDYA_CACHE);
+
       // Eski sürüm önbelleklerini temizle (ileride v2'ye geçilirse)
       const adlar = await caches.keys();
       await Promise.all(
@@ -37,9 +44,51 @@ self.addEventListener("activate", (event) => {
       );
       // Açık sayfayı yeniden yüklemeye gerek kalmadan hemen devral
       await self.clients.claim();
+
+      if (guncelleme) {
+        // BEKLEMEYİN: yenileme isteği bu Service Worker'dan geçer ve tarayıcı,
+        // SW "activating" durumundayken fetch olaylarını bekletir. Burada
+        // beklemek, aktivasyonla yenilemenin birbirini beklemesine yol açar
+        // (testte 8+ sn gecikme). Aktivasyon bitince başlatıyoruz.
+        setTimeout(() => void kiosklariYenile(), 0);
+      }
     })()
   );
 });
+
+/**
+ * Bu Service Worker güncellendiğinde açık kiosk sayfalarını bir kez yeniler.
+ * Otomatik güncelleme özelliğinden ÖNCEKİ sayfa kodu kendini yenilemeyi
+ * bilmiyor; onları yeni koda geçirmenin tek yolu bu. Medya diskte olduğu
+ * için yenileme bir iki saniye sürer.
+ *
+ * Döngü koruması: son yenilemeden bu yana YENILEME_SOGUMA_MS geçmediyse
+ * hiçbir şey yapılmaz.
+ */
+async function kiosklariYenile() {
+  try {
+    const meta = await caches.open(META_CACHE);
+    const kayit = await meta.match("/__son-sw-yenileme");
+    const son = kayit ? Number(await kayit.text()) : 0;
+    if (Date.now() - son < YENILEME_SOGUMA_MS) return;
+    await meta.put("/__son-sw-yenileme", new Response(String(Date.now())));
+
+    const pencereler = await self.clients.matchAll({ type: "window" });
+    for (const pencere of pencereler) {
+      const yol = new URL(pencere.url).pathname;
+      // Yalnızca kiosk sayfaları; yönetim paneli açıksa ona dokunma
+      if (yol === "/" || yol === "/fs" || yol.startsWith("/fs/")) {
+        try {
+          await pencere.navigate(pencere.url);
+        } catch {
+          /* bu pencere yenilenemedi; sayfa kendi kontrolüyle yakalar */
+        }
+      }
+    }
+  } catch {
+    /* yenileme opsiyonel; önbellek işlevi etkilenmesin */
+  }
+}
 
 self.addEventListener("fetch", (event) => {
   const istek = event.request;

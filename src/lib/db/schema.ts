@@ -1,6 +1,8 @@
 import {
   boolean,
+  date,
   integer,
+  jsonb,
   pgTable,
   serial,
   text,
@@ -44,6 +46,30 @@ export const videoAtamalari = pgTable(
   (t) => [unique("video_atamalari_sube_dosya").on(t.subeId, t.dosya)]
 );
 
+/**
+ * Medyanın yayın tarihleri. Satır yoksa medya süresiz yayındadır.
+ * Tarihler İstanbul saatine göre ve iki uç dahil: bitiş günü sonuna kadar oynar.
+ * Tarih aralığı dışındaki medya her yerden düşer: atamalardan da, şubesi
+ * belirlenmemiş ekranların oynattığı havuzdan da.
+ */
+export const medyaAyarlari = pgTable("medya_ayarlari", {
+  dosya: text("dosya").primaryKey(),
+  baslangic: date("baslangic", { mode: "string" }),
+  bitis: date("bitis", { mode: "string" }),
+  guncellendi: timestamp("guncellendi", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Ekranın video başına teşhis sayaçları (sayfa açıldığından beri) */
+export type VideoTeshis = {
+  /** Kaç kez sonuna kadar oynadı */
+  oynatma: number;
+  /** Oynatma sırasında veri yetişmeyip duraklama sayısı */
+  takilma: number;
+  /** Çözülen toplam kare / atlanan kare: oran yüksekse cihaz videoyu çözemiyor */
+  kare: number;
+  kayip: number;
+};
+
 /** Ekran kaydı: panel listesi artık deploy'da sıfırlanmasın diye kalıcı. */
 export const ekranKaydi = pgTable("ekran_kaydi", {
   cihazId: text("cihaz_id").primaryKey(),
@@ -59,6 +85,11 @@ export const ekranKaydi = pgTable("ekran_kaydi", {
   onbellekToplam: integer("onbellek_toplam").notNull().default(0),
   /** Sayfa açıldığından beri oynatma sırasında yaşanan takılma sayısı */
   takilma: integer("takilma").notNull().default(0),
+  /** Kioskta çalışan sayfanın sürümü; eskiyse panel uyarır */
+  surum: text("surum"),
+  /** Sayfa kaç saniyedir açık — takılma sayısını saate bölmek için */
+  calismaSn: integer("calisma_sn").notNull().default(0),
+  teshis: jsonb("teshis").$type<Record<string, VideoTeshis>>(),
   ilkGorulme: timestamp("ilk_gorulme", { withTimezone: true }).notNull().defaultNow(),
   sonSinyal: timestamp("son_sinyal", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -67,6 +98,7 @@ export type Sube = typeof subeler.$inferSelect;
 export type SubeIp = typeof subeIpleri.$inferSelect;
 export type VideoAtamasi = typeof videoAtamalari.$inferSelect;
 export type EkranKaydi = typeof ekranKaydi.$inferSelect;
+export type MedyaAyari = typeof medyaAyarlari.$inferSelect;
 
 /**
  * Şemayı kuran DDL. Uygulama her açılışta çalıştırır (instrumentation.ts).
@@ -118,6 +150,17 @@ CREATE TABLE IF NOT EXISTS ekran_kaydi (
 ALTER TABLE ekran_kaydi ADD COLUMN IF NOT EXISTS onbellek_hazir  integer NOT NULL DEFAULT 0;
 ALTER TABLE ekran_kaydi ADD COLUMN IF NOT EXISTS onbellek_toplam integer NOT NULL DEFAULT 0;
 ALTER TABLE ekran_kaydi ADD COLUMN IF NOT EXISTS takilma         integer NOT NULL DEFAULT 0;
+ALTER TABLE ekran_kaydi ADD COLUMN IF NOT EXISTS surum           text;
+ALTER TABLE ekran_kaydi ADD COLUMN IF NOT EXISTS calisma_sn      integer NOT NULL DEFAULT 0;
+ALTER TABLE ekran_kaydi ADD COLUMN IF NOT EXISTS teshis          jsonb;
+
+CREATE TABLE IF NOT EXISTS medya_ayarlari (
+  dosya        text PRIMARY KEY,
+  baslangic    date,
+  bitis        date,
+  guncellendi  timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT medya_ayarlari_tarih_sirasi CHECK (baslangic IS NULL OR bitis IS NULL OR baslangic <= bitis)
+);
 
 CREATE INDEX IF NOT EXISTS sube_ipleri_sube_idx ON sube_ipleri (sube_id);
 CREATE INDEX IF NOT EXISTS video_atamalari_sube_idx ON video_atamalari (sube_id);

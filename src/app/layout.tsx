@@ -4,6 +4,8 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Video",
   description: "Video oynatıcı",
+  // Kiosk ekranı; arama sonuçlarında görünmesin
+  robots: { index: false, follow: false },
 };
 
 export const viewport: Viewport = {

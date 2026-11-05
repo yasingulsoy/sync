@@ -1,9 +1,19 @@
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { clientIpFrom } from "@/lib/clientIp";
-import { playlistFor, resolveScreen, touchScreen } from "@/lib/db/queries";
+import {
+  listMediaSchedules,
+  playlistFor,
+  resolveScreen,
+  touchScreen,
+} from "@/lib/db/queries";
 import { isValidGroupName } from "@/lib/screenGroups";
+import { sunucuSurumu } from "@/lib/surum";
 import { listPoolMedia } from "@/lib/videoPool";
+import { istanbulBugun, yayinDurumu, type YayinAraligi } from "@/lib/yayin";
+
+/** Arama motoru botları /fs'i tarayıp panelde sahte ekran olarak görünüyordu */
+const BOT_RE = /bot|crawl|spider|slurp|preview|facebookexternalhit/i;
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +26,21 @@ export async function GET(request: Request) {
   const urlKodu = override && isValidGroupName(override) ? override : "";
 
   const havuzMedya = await listPoolMedia();
-  const havuz = havuzMedya.map((m) => m.dosya);
+
+  // Yayın tarihi dışındaki medya her yerden düşer: atamalardan da, şubesi
+  // belirlenmemiş ekranların oynattığı havuzdan da. Veritabanına
+  // ulaşılamazsa tarihler bilinemez; o durumda ekran siyah kalmasın diye
+  // havuzun tamamı yayında sayılır.
+  let takvim: Record<string, YayinAraligi> = {};
+  try {
+    takvim = await listMediaSchedules();
+  } catch {
+    takvim = {};
+  }
+  const bugun = istanbulBugun();
+  const havuz = havuzMedya
+    .map((m) => m.dosya)
+    .filter((f) => yayinDurumu(takvim[f], bugun) === "yayinda");
 
   let videos = havuz;
   let sube: { id: number; kod: string; ad: string } | null = null;
@@ -46,14 +70,15 @@ export async function GET(request: Request) {
   }
 
   const cihazId = url.searchParams.get("id")?.trim().slice(0, 64) ?? "";
-  if (cihazId) {
+  const userAgent = h.get("user-agent") ?? "";
+  if (cihazId && !BOT_RE.test(userAgent)) {
     try {
       await touchScreen({
         cihazId,
         ip,
         subeId: sube?.id ?? null,
         kaynak,
-        userAgent: h.get("user-agent")?.slice(0, 200) ?? "",
+        userAgent: userAgent.slice(0, 200),
       });
     } catch {
       /* kayit tutulamadi; yayin etkilenmesin */
@@ -68,10 +93,16 @@ export async function GET(request: Request) {
     // Ekran önbelleğinin güncel olup olmadığını anlamak için. "videos" alanı
     // bilerek string dizisi kaldı: deploy anında açık eski sayfalar bozulmasın.
     boyutlar,
+    // Değiştiğini gören kiosk iki video arasında kendini yeniler (yeni deploy)
+    surum: sunucuSurumu(),
     sube: sube ? { kod: sube.kod, ad: sube.ad } : null,
     kaynak,
     atamaVar,
     dbHatasi,
     ip,
+  }, {
+    // Bir ara katman (Cloudflare "cache everything" kuralı vb.) bunu önbelleğe
+    // alırsa kiosklar eski/yeni sürüm arasında gidip gelir; açıkça yasakla.
+    headers: { "Cache-Control": "no-store" },
   });
 }

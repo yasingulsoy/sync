@@ -17,13 +17,17 @@ import {
   addBranchIp,
   createBranch,
   deleteBranch,
+  deleteStaleScreens,
   forgetScreen,
   removeBranchIp,
   renameBranch,
   setAssignment,
   setAssignmentForAll,
+  setMediaSchedule,
 } from "@/lib/db/queries";
 import { isValidGroupName, isValidIpRule } from "@/lib/screenGroups";
+import { listPoolVideos } from "@/lib/videoPool";
+import { gecerliTarih } from "@/lib/yayin";
 
 /* ------------------------------------------------------------------ */
 /* Oturum                                                              */
@@ -199,4 +203,46 @@ export async function ekranUnutAction(cihazId: string): Promise<IslemSonucu> {
     return { hata: "Kayıt silinemedi." };
   }
   return OK;
+}
+
+/**
+ * Medyanın yayın tarihlerini kaydeder. Boş bırakılan uç sınırsızdır;
+ * ikisi de boşsa medya süresiz yayına döner.
+ */
+export async function medyaTakvimAction(
+  dosya: string,
+  baslangic: string,
+  bitis: string
+): Promise<IslemSonucu> {
+  if (!(await yetkiVar())) return { hata: "Yetkisiz." };
+
+  // Yalnızca havuzda gerçekten olan dosyalar için satır açılsın
+  const havuz = await listPoolVideos();
+  if (!havuz.includes(dosya)) return { hata: "Dosya havuzda yok." };
+
+  const b = baslangic.trim() || null;
+  const s = bitis.trim() || null;
+  if ((b && !gecerliTarih(b)) || (s && !gecerliTarih(s))) {
+    return { hata: "Geçersiz tarih." };
+  }
+  if (b && s && b > s) return { hata: "Bitiş, başlangıçtan önce olamaz." };
+
+  try {
+    await setMediaSchedule(dosya, { baslangic: b, bitis: s });
+  } catch {
+    return { hata: "Kaydedilemedi." };
+  }
+  return OK;
+}
+
+/** Uzun süredir sinyal vermeyen cihaz kayıtlarını (bozuk kopyalar, botlar) siler */
+export async function eskiKayitlariSilAction(gun: number): Promise<IslemSonucu & { silinen?: number }> {
+  if (!(await yetkiVar())) return { hata: "Yetkisiz." };
+  const sinir = Number.isInteger(gun) && gun >= 1 ? gun : 30;
+  try {
+    const silinen = await deleteStaleScreens(sinir);
+    return { hata: null, silinen };
+  } catch {
+    return { hata: "Silinemedi." };
+  }
 }
